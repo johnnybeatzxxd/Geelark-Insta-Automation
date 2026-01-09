@@ -18,9 +18,7 @@ from connection import connect_to_phone
 from appium import webdriver
 from appium.options.android import UiAutomator2Options
 from helper import open_page
-from warmup_config import get_day_config
 from swipe import realistic_swipe
-from warmup import perform_warmup
 from chat import process_new_matches
 from adb import get_local_devices
 from appium.webdriver.common.appiumby import AppiumBy
@@ -152,87 +150,101 @@ def open_phones_manually():
                 rprint(f"[bold red]CRITICAL: Cleanup failed. Could not stop phones {active_phone_ids}. Please check your provider's dashboard manually! Error: {e}[/bold red]")
 
 def create_device_logger(device_name: str):
-    """Creates a thread-safe logger for a specific device."""
+    """
+    Creates and returns a logging function that automatically prepends the device name
+    and correctly preserves color markup.
+    """
+    # Create the prefix as a rich-formatted string
     prefix_str = f"[bold cyan][{device_name}][/bold cyan]"
+
     def device_specific_log(message: str, *args, **kwargs):
-        rprint(f"{prefix_str} {message}", *args, **kwargs)
+        """The actual logging function that will be used in the process."""
+        # Combine the prefix string and the message string *before* printing
+        full_message_str = f"{prefix_str} {message}"
+        
+        # rprint will now parse the ENTIRE string for all markup tags
+        rprint(full_message_str, *args, **kwargs)
+
     return device_specific_log
 
-
-def run_automation_for_device(device: dict, automation_type: str, appium_port: int, system_port: int, day_number: int):
+def run_automation_for_device(device: Dict, automation_type: str, appium_port: int, system_port: int, duration: int, probability: int,messaging_probability=4):
     """
-    Worker process for a single device.
+    This function contains all logic to automate a SINGLE phone.
+    It's designed to be run in its own process.
     """
     device_name = device.get('name', 'UnknownDevice')
+    
+    # === NEW: Create the logger for this specific device ===
     log = create_device_logger(device_name)
     
     appium_service = None
     driver = None
 
     try:
-        log(f"Process started. Target: Day {day_number}")
+        log("Automation process started.")
         
-        # 1. Connect to Device
+        # 1. Connect to the physical device
         if device["type"] == "local":
             connection_info = { "ip": device["id"].split(":")[0], "port": device["id"].split(":")[1] }
-        else:
+        else: # remote
             connection_info = connect_to_phone(device['id'])
 
         if not connection_info:
             log("[red]Failed to get connection info. Terminating.[/red]")
             return
 
-        # 2. Start Appium Server
-        # (Assuming you have start_appium_service_instance defined elsewhere in your file)
+        # 2. Start a unique Appium Service for this device
+        # Pass the logger to any functions that need it
         appium_service = start_appium_service_instance('127.0.0.1', appium_port, system_port, log)
         server_url = f"http://127.0.0.1:{appium_port}/wd/hub"
 
-        # 3. Initialize Driver
-        # (Assuming setup_appium_driver is defined elsewhere)
+        # 3. Setup the Appium Driver
         driver = setup_appium_driver(connection_info, server_url, system_port)
         if not driver:
             log("[red]Failed to initialize driver. Terminating.[/red]")
             return
 
-        log("[green]Driver ready. Loading configuration...[/green]")
+        log("[green]Setup complete. Starting automation logic.[/green]")
 
-        # 4. Execute Logic
-        if automation_type == "warmup":
-            # Load the precise configuration for this day
-            config = get_day_config(day_number)
-            
-            # Start on Home Page
-            if open_page(driver, "Home", logger_func=log):
-                # Pass the CONFIG DICTIONARY, not just a number
-                perform_warmup(driver, config)
-                log("[bold green]Daily Warmup Routine Complete.[/bold green]")
-            else:
-                log("[red]Failed to open Home Page. Aborting.[/red]")
-
+        # 4. Execute the automation logic, passing the logger
+        if automation_type == "swiping":
+            # Pass the log function to your helper functions
+            if open_page(driver, "People", logger_func=log): 
+                realistic_swipe(driver, right_swipe_probability=probability, duration_minutes=duration, logger_func=log,messaging_probability=messaging_probability)
+        elif automation_type == "handle_matches":
+            if open_page(driver, "Chats", logger_func=log): 
+                process_new_matches(driver, 10, 5, logger_func=log)
         elif automation_type == "auto":
-            log("[yellow]Auto mode logic is not yet implemented.[/yellow]")
+             for i in range(2):
+                if open_page(driver, "People", logger_func=log): 
+                    realistic_swipe(driver, right_swipe_probability=7, duration_minutes=5, logger_func=log)
+                if open_page(driver, "Chats", logger_func=log): 
+                    process_new_matches(driver,10, 5, logger_func=log)
 
+        log("[green]Automation task finished.[/green]")
     except Exception as e:
-        log(f"[red]Critical Error: {e}[/red]")
+        log(f"[red]An unexpected error occurred: {e}[/red]")
         import traceback
         log(traceback.format_exc())
     finally:
-        # 5. Cleanup
-        log("Cleaning up...")
+        # 5. Cleanup (this is critical!)
+        log("Starting cleanup...")
         if driver:
-            try: driver.quit()
-            except: pass
+            try:
+                # driver.quit()
+                log("Appium driver quit successfully.")
+            except Exception as e:
+                log(f"[red]Error quitting driver: {e}[/red]")
         if appium_service:
-            try: appium_service.stop()
-            except: pass
-        
-        # Only stop remote phones if you want them to close after the script
-        # if device["type"] != "local":
-        #     stop_phone([device['id']])
-        
-        log("Process finished.")
-
-
+            try:
+                appium_service.stop()
+                log("Appium service stopped successfully.")
+            except Exception as e:
+                log(f"[red]Error stopping Appium service: {e}[/red]")
+        if device["type"] != "local":
+            stop_phone([device['id']])
+            log("Remote phone stop signal sent.")
+        log("Cleanup finished.")
 def start_appium_service_instance(host: str, port: int, system_port: int, log: Callable) -> AppiumService:
     """Starts a unique Appium server instance on a specific port."""
     service = AppiumService()
@@ -264,11 +276,9 @@ def start_appium_service_instance(host: str, port: int, system_port: int, log: C
 def handle_update_popup(driver, timeout=3) -> bool:
     """
     Checks for the 'It's time to update' popup and clicks 'Maybe later' if present.
-
     Args:
         driver: Appium WebDriver instance.
         timeout (float): Max seconds to wait for popup appearance.
-
     Returns:
         bool: True if popup was handled, False otherwise.
     """
@@ -349,28 +359,49 @@ def manage_adb_server(action: str = "kill") -> bool:
 def setup_appium_driver(connection_info: dict, server_url: str, system_port: int) -> webdriver.Remote:
     """Set up and return an Appium WebDriver instance for a specific device."""
     connection_address = f"{connection_info['ip']}:{connection_info['port']}"
-    platform_version, device_name = "15", connection_address # Simplified for example
+    platform_version, device_name = "12", connection_address # Simplified for example
 
     options = UiAutomator2Options()
     options.platform_name = "Android"
     options.device_name = device_name
     options.udid = device_name # Explicitly set UDID
     options.automation_name = "UiAutomator2"
-    options.set_capability('appium:uiautomator2ServerInstallTimeout', 900000)
-    options.app_package = "com.instagram.android"
-    options.app_activity = "com.instagram.mainactivity.InstagramMainActivity"
+    options.app_package = "com.bumble.app"
+    options.app_activity = ".ui.launcher.BumbleLauncherActivity"
     options.no_reset = True
     options.new_command_timeout = 300
     options.auto_grant_permissions = True
     # CRUCIAL for parallel execution: each device needs a unique systemPort
     options.system_port = system_port
+    options.uiautomator2_server_install_timeout = 120000 
+
+    # Give all other ADB commands 2 minutes as well. This is a good safety measure.
+    options.adb_exec_timeout = 120000
 
     try:
         rprint(f"[{device_name}] Connecting to Appium at {server_url}...")
         driver = webdriver.Remote(server_url, options=options)
         time.sleep(5) # Wait for app to stabilize
         rprint(f"[{device_name}] Driver initialized successfully.")
-        return driver
+
+        target_package = "com.bumble.app"
+        max_retries = 3
+        for attempt in range(max_retries):
+            if driver.current_package == target_package:
+                rprint(f"[{device_name}] [green]Bumble app is in the foreground. Driver is ready.[/green]")
+                # Now is a good time to handle any initial popups
+                handle_update_popup(driver)
+                return driver # Success!
+
+            # If not, log it and attempt to activate the app
+            rprint(f"[{device_name}] [yellow]App not in foreground (current: {driver.current_package}). Activating... (Attempt {attempt + 1}/{max_retries})[/yellow]")
+            driver.activate_app(target_package)
+            time.sleep(5)
+
+        # If the loop finishes without success, we have a problem.
+        rprint(f"[{device_name}] [red]FATAL: Failed to activate the Bumble app after {max_retries} attempts.[/red]")
+        driver.quit() # Clean up the failed session
+        return None
     except Exception as e:
         rprint(f"[{device_name}] [red]Failed to initialize Appium driver: {str(e)}[/red]")
         return None
@@ -446,100 +477,114 @@ def get_all_available_devices() -> List[Dict]:
     # Combine both lists
     return remote_devices + local_devices
 
-def start_automation_all():
-    """
-    Main entry point for multi-device automation.
-    """
-    # 1. Get Devices
-    devices = get_all_available_devices() # Ensure this function is defined/imported
+def start_automation_all(duration=None,probability=None,automation_type=None,messaging_probability=4):
+    """Manages the parallel execution of automation across selected devices."""
+    # 1. Get all available devices
+    devices = get_all_available_devices()
     if not devices:
-        rprint("[red]No devices found![/red]")
+        rprint("[red]No available devices found![/red]")
         return
 
-    display_phones(devices) # Ensure display_phones is defined/imported
+    display_phones(devices)
     
-    # 2. User Selection
-    selection_str = Prompt.ask("Enter numbers (e.g. 1 3), 'all', or Enter to cancel")
-    if not selection_str.strip(): return
+    # 2. Prompt for device selection
+    selection_str = Prompt.ask(
+        "Enter numbers separated by space to select devices (e.g. 1 3 4), 'all', or press Enter to cancel"
+    )
 
+    if not selection_str.strip():
+        rprint("[yellow]Operation cancelled.[/yellow]")
+        return
+
+    # 3. Process selection
     selected_devices = []
     if selection_str.strip().lower() == 'all':
+        rprint("[cyan]Selecting all available devices...[/cyan]")
         selected_devices = devices
     else:
-        for choice in selection_str.strip().split():
-            if choice.isdigit() and 1 <= int(choice) <= len(devices):
-                selected_devices.append(devices[int(choice) - 1])
+        user_choices = selection_str.strip().split()
+        for choice in user_choices:
+            if not choice.isdigit() or not (1 <= int(choice) <= len(devices)):
+                rprint(f"[yellow]Warning: Invalid choice '{choice}'. Skipping.[/yellow]")
+                continue
+            selected_devices.append(devices[int(choice) - 1])
 
-    if not selected_devices: return
+    if not selected_devices:
+        rprint("[red]No valid devices were selected. Aborting.[/red]")
+        return
 
-    # 3. Configuration
-    console.print("\n[bold]Select Automation Mode:[/bold]")
-    console.print("1. Daily Warmup (Feed + Reels)")
-    console.print("2. Full Auto (Not Implemented)")
-    
-    mode_choice = Prompt.ask("Select mode", choices=["1", "2"], default="1")
-    automation_type = "warmup" if mode_choice == "1" else "auto"
-    
-    day_number = 1
-    if automation_type == "warmup":
-        console.print("\n[bold]Select Account Age (Preset):[/bold]")
-        console.print("[cyan]1-2:[/cyan] New Account (Cautious)")
-        console.print("[cyan]3-5:[/cyan] Warming Up (Standard)")
-        console.print("[cyan]6-7:[/cyan] Established (Active)")
-        
-        day_str = Prompt.ask("Enter Day Number (1-7)", default="1")
-        if day_str.isdigit() and 1 <= int(day_str) <= 7:
-            day_number = int(day_str)
-        
-        # Optional: Allow custom overrides here if you want later
-        
-    # 4. Process Management
-    # Ensure manage_adb_server is imported
-    manage_adb_server("kill")
-    manage_adb_server("start")
+    # 4. Get automation parameters
+    if not automation_type:
+        automation_type = get_automation_type()
+
+    if automation_type == "swiping":
+        if not duration:
+            duration_str = Prompt.ask("Enter swipe duration in minutes", default="5")
+            duration = int(duration_str) if duration_str.isdigit() else 5
+        if not probability:
+            prob_str = Prompt.ask("Enter right swipe probability (1-10)", default="5")
+            probability = int(prob_str) if prob_str.isdigit() and 1 <= int(prob_str) <= 10 else 5
+
+    # 5. Prepare for multiprocessing
+    manage_adb_server("kill") # Kill any old server
+    manage_adb_server("start") # Start one clean server for all processes
 
     processes = []
-    appium_base_port = 4723
-    system_base_port = 8200
-
-    rprint(f"\n[bold blue]Starting {len(selected_devices)} processes for Day {day_number}...[/bold blue]")
-
     try:
+        appium_base_port = 4723
+        system_base_port = 8200 # Each UiAutomator2 instance needs a unique system port
+
+        # 6. Create and start a process for each selected device
+        rprint("\n[bold blue]Starting automation processes...[/bold blue]")
         for i, device in enumerate(selected_devices):
-            # Calculate unique ports for this process
-            a_port = appium_base_port + (i * 2)
-            s_port = system_base_port + i
+            appium_port = appium_base_port + (i * 2) # e.g., 4723, 4725, 4727
+            system_port = system_base_port + i       # e.g., 8200, 8201, 8202
 
-            p = multiprocessing.Process(
+            process = multiprocessing.Process(
                 target=run_automation_for_device,
-                args=(device, automation_type, a_port, s_port, day_number)
+                args=(device, automation_type, appium_port, system_port, duration, probability,messaging_probability)
             )
-            processes.append(p)
-            p.start()
-            
-            rprint(f"[dim]Launched: {device['name']} (Port {a_port})[/dim]")
-            time.sleep(3) # Stagger starts to prevent ADB choking
+            processes.append(process)
+            process.start()
+            rprint(f"[green]Started process {process.pid} for device '{device['name']}' on Appium port {appium_port}[/green]")
+            time.sleep(5) # Stagger the process starts slightly to avoid resource contention
 
-        # Wait for all to finish
-        for p in processes:
-            p.join()
+        # 7. Wait for all processes to complete
+        rprint("\n[bold yellow]All automation processes are running. Waiting for them to complete...[/bold yellow]")
+        for process in processes:
+            process.join() # This will block until the process finishes
 
-        rprint("\n[bold green]All devices finished successfully.[/bold green]")
-
-    except KeyboardInterrupt:
-        rprint("\n[bold red]Interrupted by User! Terminating...[/bold red]")
+        rprint("\n[bold green]All automation tasks have completed.[/bold green]")
+        manage_adb_server("kill") # Final cleanup
     finally:
-        # Emergency Cleanup
-        for p in processes:
-            if p.is_alive(): p.terminate()
-        
-        # Optional: Stop remote phones automatically
-        remote_ids = [d['id'] for d in selected_devices if d.get("type") == "remote"]
-        if remote_ids:
-           stop_phone(remote_ids)
-                
-        manage_adb_server("kill")
+        # This block is GUARANTEED to run, even on Ctrl+C
+        rprint("\n[bold yellow]Main process is shutting down...[/bold yellow]")
 
+        # 1. Find all remote phones that were part of this run.
+        remote_device_ids = [
+            device['id'] for device in selected_devices if device.get("type") == "remote"
+        ]
+
+        # 2. If there are any, call the stop_phone API for all of them.
+        if remote_device_ids:
+            rprint(f"[yellow]Sending stop command for {len(remote_device_ids)} remote phone(s)...[/yellow]")
+            try:
+                # The stop_phone function likely accepts a list of IDs.
+                stop_phone(remote_device_ids)
+                rprint("[green]Stop command sent successfully.[/green]")
+            except Exception as e:
+                rprint(f"[bold red]CRITICAL: Failed to send stop command for phones: {e}[/bold red]")
+        
+        # 3. Now, proceed with terminating the local child processes.
+        rprint("[yellow]Terminating all child processes...[/yellow]")
+        for process in processes:
+            if process.is_alive():
+                rprint(f"[red]Terminating process {process.pid}...[/red]")
+                process.terminate()
+                process.join(timeout=5)
+        
+        rprint("[green]All child processes have been terminated.[/green]")
+        manage_adb_server("kill")
 
 def start_automation_specific():
     """Start automation for a single, user-selected device."""
@@ -608,26 +653,14 @@ def start_automation_specific():
         log("[green]Appium driver initialized successfully[/green]")
         
         if automation_type == "swiping":
-            if open_page(driver, "Home",logger_func=log): 
-                log("[green]we are on the home page starting warmup phase!")
-                input("press enter to take ss")
-                source = driver.page_source
-                # Save it to a file
-                with open("current_screen.xml", "w", encoding='utf-8') as f:
-                    f.write(source)
-                print("Page source saved to current_screen.xml")
-                perform_warmup(driver, intensity=1, like_probability=35, likes_hard_limit=5)
-                time.sleep(6)
-            if open_page(driver, "profile",logger_func=log): 
-                log("[green]We are on the profiles page")
-                time.sleep(2)
-                # realistic_swipe(driver, right_swipe_probability=probability, duration_minutes=duration, logger_func=log)
+            if open_page(driver, "People",logger_func=log): 
+                realistic_swipe(driver, right_swipe_probability=probability, duration_minutes=duration, logger_func=log)
         elif automation_type == "handle_matches":
             if open_page(driver, "Chats",logger_func=log): 
                 process_new_matches(driver, 10, 5,logger_func=log)
         elif automation_type == "auto":
             for i in range(2):
-                if open_page(driver, "Home", logger_func=log): 
+                if open_page(driver, "People", logger_func=log): 
                     realistic_swipe(driver, right_swipe_probability=7, duration_minutes=5, logger_func=log)
                 if open_page(driver, "Chats",logger_func=log): 
                     process_new_matches(driver,10, 5, logger_func=log)
@@ -701,25 +734,28 @@ def show_menu():
         console.print("\n[bold]Available Options:[/bold]")
         console.print("1. Start Automation for Multiple Devices")
         console.print("2. Start Automation for Specific Device")
-        console.print("3. List Available Devices")
-        console.print("4. Disable Device")
-        console.print("5. Open Phones for Manual Use")  
-        console.print("6. Exit")                      
+        console.print("3. Warmup Accounts")
+        console.print("4. List Available Devices")
+        console.print("5. Disable Device")
+        console.print("6. Open Phones for Manual Use")  
+        console.print("7. Exit")                      
         
-        choice = Prompt.ask("\nSelect an option", choices=["1", "2", "3", "4", "5", "6"])
+        choice = Prompt.ask("\nSelect an option", choices=["1", "2", "3", "4", "5", "6","7"])
         
         if choice == "1":
             start_automation_all()
         elif choice == "2":
             start_automation_specific()
         elif choice == "3":
-            list_available_phones()
+            start_automation_all(duration=4,probability=4,automation_type="swiping",messaging_probability=3)
         elif choice == "4":
-            disable_phone()
+            list_available_phones()
         elif choice == "5":
+            disable_phone()
+        elif choice == "6":
             # Call the new function
             open_phones_manually()
-        elif choice == "6":
+        elif choice == "7":
             # The clean exit logic
             if Confirm.ask("Are you sure you want to exit?"):
                 console.print("[yellow]Goodbye![/yellow]")

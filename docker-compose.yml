@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  worker:
+    build: .
+    container_name: appium-worker
+    # Network host lets the container share your Arch IP (Good for ADB)
+    network_mode: host
+    privileged: true
+    volumes:
+      # Map current folder on Arch (.) to /app inside container
+      - ./src:/app
+      # Map USB/ADB so container sees devices
+      - /dev/bus/usb:/dev/bus/usb

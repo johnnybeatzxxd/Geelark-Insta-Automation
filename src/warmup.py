@@ -36,8 +36,18 @@ ID_LIKE_BUTTON = "com.instagram.android:id/row_feed_button_like"
 def chance(percentage: int) -> bool:
     return random.randint(1, 100) <= percentage
 
-def human_sleep(min_seconds=1.0, max_seconds=3.0):
-    time.sleep(random.uniform(min_seconds, max_seconds))
+def human_sleep(min_seconds=1.0, max_seconds=3.0, speed_mode="normal"):
+    """
+    Sleeps based on speed multiplier.
+    'slow' = 1.5x wait (Grandma mode)
+    'normal' = 1.0x wait
+    'fast' = 0.7x wait (Zoomer mode)
+    """
+    multipliers = {"slow": 1.5, "normal": 1.0, "fast": 0.7}
+    factor = multipliers.get(speed_mode, 1.0)
+    
+    duration = random.uniform(min_seconds, max_seconds) * factor
+    time.sleep(duration)
 
 # --- NAVIGATION & AWARENESS ---
 
@@ -229,48 +239,74 @@ def interact_with_suggestions_if_present(driver, follows_limit, current_follows)
 
 # --- MAIN CONTROLLER ---
 
-def perform_warmup(driver, like_probability=35, likes_hard_limit=5, intensity=0.5):
-    posts_to_view = int(random.randint(5, 10) * intensity) + 3
-    stats = {"likes": 0, "opened": 0}
+def perform_warmup(driver, config):
+    """
+    Executes warmup based on the specific Day Configuration.
+    """
+    log(f"[bold green]Starting Warmup Routine: {config['label']}[/bold green]")
     
-    log(f"[bold green]Starting Feed Warmup | Limit: {likes_hard_limit} Likes[/bold green]")
-    human_sleep(2, 3)
+    # 1. Extract Configs
+    feed_conf = config['feed']
+    reels_conf = config['reels']
+    limits = config['limits']
+    chances = config['chance']
+    speed = config['speed']
+    
+    stats = {"likes": 0, "follows": 0, "opened": 0}
 
-
-    # 0. Safety Check
-    if not is_on_home_feed(driver):
-        log("[red]! Lost Navigation. Recovering...[/red]")
-        # If ensure_back_to_feed fails (even after hard recovery), stop the script
-        if not ensure_back_to_feed(driver): 
-            log("[bold red]ABORTING: App failed to recover to Home Feed.[/bold red]")
-            return 
-
-    human_sleep(1.5, 4.0)
-
-    interact_with_suggestions_if_present(driver, follows_limit=1, current_follows=0)
-
-    # 1. DECISION: Open Media (50% Chance)
-    if chance(50):
-        action_open_post_image(driver)
-        stats["opened"] += 1
-
-    # 2. DECISION: Like Feed Post
-    if chance(like_probability):
-        if stats["likes"] < likes_hard_limit:
-            if action_like_post(driver):
-                stats["likes"] += 1
-                human_sleep(0.5, 1.5)
-
-    perform_scroll(driver, direction="down")
-
-    if chance(100):
-        log("[bold yellow]Joe is bored of the Feed. Switching to Reels...[/bold yellow]")
+    # ============================
+    # PHASE 1: HOME FEED BROWSING
+    # ============================
+    if feed_conf['enabled']:
+        # Determine exact number of scrolls for this session
+        target_scrolls = random.randint(feed_conf['min_scrolls'], feed_conf['max_scrolls'])
         
-        # Calculate duration based on intensity
-        # Low intensity = 2 mins, High = 8 mins
-        minutes = int(random.randint(2, 5) * intensity) + 1
+        log(f"[cyan]--- Phase 1: Feed ({target_scrolls} scrolls) ---[/cyan]")
         
-        browse_reels.browse_reels_session(driver, duration_minutes=minutes)
+        for i in range(target_scrolls):
+            log(f"[dim]Feed Post {i+1}/{target_scrolls}[/dim]")
+            # Safety Check
+            if not is_on_home_feed(driver):
+                log("[red]! Lost Navigation. Recovering...[/red]")
+                if not ensure_back_to_feed(driver): return
+
+            # Look at post (Speed affects this)
+            human_sleep(1.5, 4.0, speed)
+            
+            # Suggestions Logic
+            # We treat 'follows' as a hard limit from the config
+            interact_with_suggestions_if_present(driver, limits['max_follows'], stats['follows'])
+
+            # Like Logic
+            if chance(chances['like']):
+                if stats["likes"] < limits['max_likes']:
+                    if action_like_post(driver):
+                        stats["likes"] += 1
+                        human_sleep(0.5, 1.5, speed)
+            
+            # Scroll
+            perform_scroll(driver, direction="down")
+            
+    else:
+        log("[dim]Skipping Feed (Disabled in config)[/dim]")
+
+    # ============================
+    # PHASE 2: REELS SESSION
+    # ============================
+    if reels_conf['enabled']:
+        # Determine duration
+        target_minutes = random.randint(reels_conf['min_minutes'], reels_conf['max_minutes'])
         
-    log("[bold green]Full Warmup Routine Complete.[/bold green]")
-    log(f"[bold green]Warmup Complete. Stats: {stats}[/bold green]")
+        if target_minutes > 0:
+            log(f"[cyan]--- Phase 2: Switching to Reels ({target_minutes} mins) ---[/cyan]")
+            
+            # Pass the constraints to the reels module
+            # You might need to update browse_reels_session to accept speed/limits too
+            browse_reels.browse_reels_session(
+                driver, 
+                duration_minutes=target_minutes
+            )
+    else:
+        log("[dim]Skipping Reels (Disabled in config)[/dim]")
+
+    log(f"[bold green]Session Complete. Stats: {stats}[/bold green]")
