@@ -163,13 +163,17 @@ def start_phone(ids: list[str]) -> dict | None:
             if response_data.get("code") == 0:
                 # Open each phone's URL in the browser
                 success_details = response_data.get("data", {}).get("successDetails", [])
-                return success_details
                 for phone in success_details:
                     url = phone.get("url")
+                    id = phone.get("id")
                     if url:
                         print(f"Opening phone {phone.get('id')} in browser...")
+                        with open(f"gee-browse-{id}.txt", "w") as file:
+                            file.write(url)
                         webbrowser.open(url)
                         time.sleep(1)  # Small delay between opening multiple URLs
+
+                return success_details
             else:
                 print(f"API Error: {response_data.get('msg')}")
             return response_data

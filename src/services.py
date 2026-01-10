@@ -227,8 +227,8 @@ def run_automation_for_device(device: dict, automation_type: str, appium_port: i
             except: pass
         
         # Only stop remote phones if you want them to close after the script
-        # if device["type"] != "local":
-        #     stop_phone([device['id']])
+        if device["type"] != "local":
+            stop_phone([device['id']])
         
         log("Process finished.")
 
