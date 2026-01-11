@@ -24,11 +24,11 @@ def get_day_config(day_number):
         },
         3: {
             "label": "Day 3 - Waking Up",
-            "feed": {"enabled": True, "min_scrolls": 8, "max_scrolls": 12},
-            "reels": {"enabled": True, "min_minutes": 3, "max_minutes": 5},
-            "limits": {"max_likes": 2, "max_follows": 0},
+            "feed": {"enabled": True, "min_scrolls": 25, "max_scrolls": 30},
+            "reels": {"enabled": True, "min_minutes": 5, "max_minutes": 10},
+            "limits": {"max_likes": 10, "max_follows": 4},
             "speed": "normal",
-            "chance": {"like": 20, "comment": 20, "xml_dump": 0}
+            "chance": {"like": 30, "comment": 30, "xml_dump": 0}
         },
         4: {
             "label": "Day 4 - Casual User",
