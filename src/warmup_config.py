@@ -20,7 +20,7 @@ def get_day_config(day_number):
             "reels": {"enabled": True, "min_minutes": 5, "max_minutes": 8},
             "limits": {"max_likes": 5, "max_follows": 3},
             "speed": "slow",
-            "chance": {"follow": 30,"like": 30, "comment": 20, "xml_dump": 0}
+            "chance": {"follow": 20,"like": 30, "comment": 20, "xml_dump": 0}
         },
         3: {
             "label": "Day 3 - Waking Up",
@@ -28,7 +28,7 @@ def get_day_config(day_number):
             "reels": {"enabled": True, "min_minutes": 5, "max_minutes": 10},
             "limits": {"max_likes": 10, "max_follows": 5},
             "speed": "normal",
-            "chance": {"follow": 30,"like": 30, "comment": 30, "xml_dump": 0}
+            "chance": {"follow": 20,"like": 30, "comment": 30, "xml_dump": 0}
         },
         4: {
             "label": "Day 4 - Casual User",
@@ -36,15 +36,15 @@ def get_day_config(day_number):
             "reels": {"enabled": True, "min_minutes": 10, "max_minutes": 15},
             "limits": {"max_likes": 15, "max_follows": 8},
             "speed": "normal",
-            "chance": {"follow": 30,"like": 30, "comment": 30, "xml_dump": 0}
+            "chance": {"follow": 20,"like": 30, "comment": 30, "xml_dump": 0}
         },
         5: {
             "label": "Day 5 - Active User",
             "feed": {"enabled": True, "min_scrolls": 45, "max_scrolls": 55},
             "reels": {"enabled": True, "min_minutes": 15, "max_minutes": 20},
-            "limits": {"max_likes": 30, "max_follows": 10},
+            "limits": {"max_likes": 30, "max_follows": 8},
             "speed": "normal",
-            "chance": {"follow":30,"like": 35, "comment": 30, "xml_dump": 0}
+            "chance": {"follow":20,"like": 25, "comment": 30, "xml_dump": 0}
         },
         6: {
             "label": "Day 6 - The Addict",
@@ -52,7 +52,7 @@ def get_day_config(day_number):
             "reels": {"enabled": True, "min_minutes": 10, "max_minutes": 15},
             "limits": {"max_likes": 10, "max_follows": 10},
             "speed": "fast",
-            "chance": {"follow":30,"like": 35, "comment": 30, "xml_dump": 0}
+            "chance": {"follow":20,"like": 35, "comment": 30, "xml_dump": 0}
         },
         7: {
             "label": "Day 7 - Full Power",
@@ -60,7 +60,7 @@ def get_day_config(day_number):
             "reels": {"enabled": True, "min_minutes": 15, "max_minutes": 25},
             "limits": {"max_likes": 30, "max_follows": 12},
             "speed": "fast",
-            "chance": {"follow":30,"like": 40, "comment": 35, "xml_dump": 0}
+            "chance": {"follow":20,"like": 40, "comment": 35, "xml_dump": 0}
         }
     }
     return configs.get(day_number, configs[1]) # Default to Day 1 if invalid

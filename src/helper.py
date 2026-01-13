@@ -173,7 +173,7 @@ def open_page(driver: webdriver.Remote, page_name_from_ui, navigation_timeout=10
 
             # 1. Ensure App is Running
             driver.activate_app(APP_PACKAGE)
-            if attempt > 0: time.sleep(5) 
+            if attempt > -1: time.sleep(5) 
 
             # 2. Check if already there (Fast Check)
             if get_current_screen_by_tab(driver, timeout=2) == target_screen_id:
