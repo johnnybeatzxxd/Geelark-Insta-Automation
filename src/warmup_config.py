@@ -48,9 +48,9 @@ def get_day_config(day_number):
         },
         6: {
             "label": "Day 6 - The Addict",
-            "feed": {"enabled": True, "min_scrolls": 20, "max_scrolls": 30},
-            "reels": {"enabled": True, "min_minutes": 10, "max_minutes": 15},
-            "limits": {"max_likes": 10, "max_follows": 10},
+            "feed": {"enabled": True, "min_scrolls": 50, "max_scrolls": 60},
+            "reels": {"enabled": True, "min_minutes": 15, "max_minutes": 26},
+            "limits": {"max_likes": 30, "max_follows": 10},
             "speed": "fast",
             "chance": {"follow":20,"like": 35, "comment": 30, "xml_dump": 0}
         },
