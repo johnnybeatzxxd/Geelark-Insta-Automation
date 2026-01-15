@@ -56,11 +56,19 @@ def get_day_config(day_number):
         },
         7: {
             "label": "Day 7 - Full Power",
-            "feed": {"enabled": True, "min_scrolls": 45, "max_scrolls": 60},
+            "feed": {"enabled": True, "min_scrolls": 55, "max_scrolls": 65},
             "reels": {"enabled": True, "min_minutes": 15, "max_minutes": 25},
             "limits": {"max_likes": 30, "max_follows": 12},
             "speed": "fast",
-            "chance": {"follow":20,"like": 40, "comment": 35, "xml_dump": 0}
+            "chance": {"follow":40,"like": 40, "comment": 35, "xml_dump": 0}
+        },
+        8: {
+            "label": "Day 8 - custom",
+            "feed": {"enabled": True, "min_scrolls": 20, "max_scrolls": 30},
+            "reels": {"enabled": False, "min_minutes": 15, "max_minutes": 25},
+            "limits": {"max_likes": 30, "max_follows": 12},
+            "speed": "fast",
+            "chance": {"follow":40,"like": 40, "comment": 35, "xml_dump": 0}
         }
     }
     return configs.get(day_number, configs[1]) # Default to Day 1 if invalid
