@@ -205,11 +205,11 @@ def run_automation_for_device(device: dict, automation_type: str, appium_port: i
             if open_page(driver, "Home", logger_func=log):
                 # Pass the CONFIG DICTIONARY, not just a number
                 time.sleep(5)
-                source = driver.page_source
-                # Save it to a file
-                with open("current_screen.xml", "w", encoding='utf-8') as f:
-                    f.write(source)
-                print("Page source saved to current_screen.xml")
+                # source = driver.page_source
+                # # Save it to a file
+                # with open("current_screen.xml", "w", encoding='utf-8') as f:
+                #     f.write(source)
+                # print("Page source saved to current_screen.xml")
 
                 perform_warmup(driver, config)
                 log("[bold green]Daily Warmup Routine Complete.[/bold green]")
@@ -619,12 +619,11 @@ def start_automation_specific():
         if automation_type == "swiping":
             if open_page(driver, "Home",logger_func=log): 
                 log("[green]we are on the home page starting warmup phase!")
-                input("press enter to take ss")
-                source = driver.page_source
-                # Save it to a file
-                with open("current_screen.xml", "w", encoding='utf-8') as f:
-                    f.write(source)
-                print("Page source saved to current_screen.xml")
+                # source = driver.page_source
+                # # Save it to a file
+                # with open("current_screen.xml", "w", encoding='utf-8') as f:
+                #     f.write(source)
+                # print("Page source saved to current_screen.xml")
                 perform_warmup(driver, intensity=1, like_probability=35, likes_hard_limit=5)
                 time.sleep(6)
             if open_page(driver, "profile",logger_func=log): 
