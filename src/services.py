@@ -204,12 +204,22 @@ def run_automation_for_device(device: dict, automation_type: str, appium_port: i
             # Start on Home Page
             if open_page(driver, "Home", logger_func=log):
                 # Pass the CONFIG DICTIONARY, not just a number
-                time.sleep(5)
-                # source = driver.page_source
-                # # Save it to a file
-                # with open("current_screen.xml", "w", encoding='utf-8') as f:
-                #     f.write(source)
-                # print("Page source saved to current_screen.xml")
+                print("timer for the search results screenshot started! ")
+                time.sleep(10)
+                source = driver.page_source
+                # Save it to a file
+                with open("search_results.xml", "w", encoding='utf-8') as f:
+                    f.write(source)
+                print("Page source saved to current_screen.xml")
+
+
+                print("3rd timer for the profile header screenshot started! ")
+                time.sleep(10)
+                source = driver.page_source
+                # Save it to a file
+                with open("profile_header.xml", "w", encoding='utf-8') as f:
+                    f.write(source)
+                print("Page source saved to current_screen.xml")
 
                 perform_warmup(driver, config)
                 log("[bold green]Daily Warmup Routine Complete.[/bold green]")
