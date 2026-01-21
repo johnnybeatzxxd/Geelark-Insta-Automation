@@ -44,6 +44,18 @@ def update_target_status(username, new_status):
         last_action_date=datetime.datetime.now()
     ).where(Target.username == username).execute()
 
+def get_db_stats():
+    """
+    Returns a dictionary with counts of targets by status.
+    """
+    stats = {
+        "pending": Target.select().where(Target.status == 'pending').count(),
+        "followed": Target.select().where(Target.status == 'followed').count(),
+        "failed": Target.select().where(Target.status == 'failed').count(),
+        "total": Target.select().count()
+    }
+    return stats
+
 # Auto-init on import
 if not os.path.exists('instagram_actions.db'):
     initialize_db()

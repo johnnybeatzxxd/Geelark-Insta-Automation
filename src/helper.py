@@ -32,35 +32,24 @@ TAB_ID_MAP = {
 def handle_common_popups(driver):
     """
     Checks for and closes common Instagram interruptions.
-    Returns True if a popup was closed, False otherwise.
     """
-    # Added "Maybe later" and "Not now" variations based on your feedback
-    dismiss_keywords = [
-        "Not now", "Cancel", "Deny", "Don't Allow", "No, thanks", 
-        "Later", "Maybe later", "Dismiss", "Close"
-    ]
+    # Simplified list
+    dismiss_texts = ["Not now", "Cancel", "Deny", "Don't Allow", "No, thanks", "Later", "Dismiss"]
     
-    # XPath to find any Button or Clickable Text containing these words
-    xpath_query = (
-        "//android.widget.Button[" + 
-        " or ".join([f"contains(@text, '{text}')" for text in dismiss_keywords]) + 
-        "] | //android.widget.TextView[@clickable='true' and (" +
-        " or ".join([f"contains(@text, '{text}')" for text in dismiss_keywords]) + ")]"
-    )
+    # Constructing XPath safely
+    # This checks for Buttons OR TextViews that contain the text
+    xpath_conditions = " or ".join([f"contains(@text, '{t}')" for t in dismiss_texts])
+    xpath_query = f"//android.widget.Button[{xpath_conditions}] | //android.widget.TextView[@clickable='true' and ({xpath_conditions})]"
 
     try:
-        # Short timeout: we only care if it's ALREADY there blocking us
-        popup_btn = WebDriverWait(driver, 2).until(
+        popup_btn = WebDriverWait(driver, 1.5).until(
             EC.presence_of_element_located((AppiumBy.XPATH, xpath_query))
         )
-        log(f"[yellow]POPUP DETECTED: Found button '{popup_btn.text}'. Clicking to dismiss...[/yellow]")
+        log(f"[yellow]Detected popup: '{popup_btn.text}'. Clicking...[/yellow]")
         popup_btn.click()
-        time.sleep(1.5) # Allow animation to finish
+        time.sleep(1)
         return True
-    except TimeoutException:
-        return False
-    except Exception as e:
-        log(f"[yellow]Warning in popup handler: {e}[/yellow]")
+    except:
         return False
 
 # ==============================================================================

@@ -19,6 +19,8 @@ from appium import webdriver
 from appium.options.android import UiAutomator2Options
 from helper import open_page
 from warmup_config import get_day_config
+from database import import_targets_from_file, get_db_stats
+from follow_routine import perform_follow_session
 from swipe import realistic_swipe
 from warmup import perform_warmup
 from chat import process_new_matches
@@ -158,19 +160,9 @@ def create_device_logger(device_name: str):
         rprint(f"{prefix_str} {message}", *args, **kwargs)
     return device_specific_log
 
-
-def run_automation_for_device(device: dict, automation_type: str, appium_port: int, system_port: int, day_number: int):
-    """
-    Worker process for a single device.
-    """
-    device_name = device.get('name', 'UnknownDevice')
-    log = create_device_logger(device_name)
-    
-    appium_service = None
-    driver = None
-
+def get_driver(device, appium_port: int, system_port: int, log=None):
     try:
-        log(f"Process started. Target: Day {day_number}")
+        log(f"[green]Getting the driver ready[/green]")
         
         # 1. Connect to Device
         if device["type"] == "local":
@@ -195,12 +187,28 @@ def run_automation_for_device(device: dict, automation_type: str, appium_port: i
             return
 
         log("[green]Driver ready. Loading configuration...[/green]")
+        return driver
+    except:
+        log("[red]Failed to initialize driver. Terminating.[/red]")
 
+def run_automation_for_device(device: dict, automation_type: str, appium_port: int, system_port: int, day_number: int = 1):
+    """
+    Worker process for a single device.
+    """
+    device_name = device.get('name', 'UnknownDevice')
+    log = create_device_logger(device_name)
+    
+    appium_service = None
+    driver = None
+
+    try:
         # 4. Execute Logic
         if automation_type == "warmup":
             # Load the precise configuration for this day
             config = get_day_config(day_number)
-            
+            driver = get_driver(device, appium_port, system_port, log)
+            if driver is None:
+                return
             # Start on Home Page
             if open_page(driver, "Home", logger_func=log):
                 # Pass the CONFIG DICTIONARY, not just a number
@@ -208,7 +216,7 @@ def run_automation_for_device(device: dict, automation_type: str, appium_port: i
                 time.sleep(10)
                 source = driver.page_source
                 # Save it to a file
-                with open("search_results.xml", "w", encoding='utf-8') as f:
+                with open("user_profile.xml", "w", encoding='utf-8') as f:
                     f.write(source)
                 print("Page source saved to current_screen.xml")
 
@@ -226,8 +234,27 @@ def run_automation_for_device(device: dict, automation_type: str, appium_port: i
             else:
                 log("[red]Failed to open Home Page. Aborting.[/red]")
 
-        elif automation_type == "auto":
-            log("[yellow]Auto mode logic is not yet implemented.[/yellow]")
+        elif automation_type == "follow/unfollow":
+            log("[green]Follow/UnFollow Function Started![/green]")
+            count = import_targets_from_file("targets.txt")
+            log(f"[green]Loaded {count} new targets.[/green]")
+            stats = get_db_stats()
+            if stats['pending'] < 1:
+                log(f"[red]No new targets found. terminating ...[/red]")
+                return
+            log(f"[green]{stats['pending']} usernames found.[/green]")
+            config = {
+                "batch_size": 20,
+                "pattern_break": 5,
+                "min_delay": 20,
+                "max_delay": 30
+            }
+            driver = get_driver(device, appium_port, system_port, log)
+            if driver is None:
+                return
+
+            if open_page(driver, "Search", logger_func=log):
+                perform_follow_session(driver, config)
 
     except Exception as e:
         log(f"[red]Critical Error: {e}[/red]")
@@ -494,10 +521,10 @@ def start_automation_all():
     # 3. Configuration
     console.print("\n[bold]Select Automation Mode:[/bold]")
     console.print("1. Daily Warmup (Feed + Reels)")
-    console.print("2. Full Auto (Not Implemented)")
+    console.print("2. Follow/Unfollow")
     
     mode_choice = Prompt.ask("Select mode", choices=["1", "2"], default="1")
-    automation_type = "warmup" if mode_choice == "1" else "auto"
+    automation_type = "warmup" if mode_choice == "1" else "follow/unfollow"
     
     day_number = 1
     if automation_type == "warmup":

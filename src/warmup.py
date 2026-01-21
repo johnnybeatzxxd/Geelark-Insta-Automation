@@ -119,21 +119,43 @@ def ensure_back_to_feed(driver):
     return False
 
 # --- ACTIONS ---
-
-def perform_double_tap(driver, element):
+def perform_double_tap(driver, element=None, coords=None):
+    """
+    Performs a double tap.
+    Args:
+        element: WebElement to tap (calculates center automatically).
+        coords: Tuple (x, y) to tap specific screen location.
+    """
     try:
-        rect = element.rect
-        center_x = rect['x'] + (rect['width'] // 2)
-        center_y = rect['y'] + (rect['height'] // 2)
         actions = ActionChains(driver)
-        actions.w3c_actions.pointer_action.move_to_location(center_x, center_y)
-        actions.w3c_actions.pointer_action.pointer_down().pause(0.1).pointer_up()
-        actions.w3c_actions.pointer_action.pause(0.1)
-        actions.w3c_actions.pointer_action.pointer_down().pause(0.1).pointer_up()
+        
+        # Determine where to click
+        if element:
+            rect = element.rect
+            center_x = rect['x'] + (rect['width'] // 2)
+            center_y = rect['y'] + (rect['height'] // 2)
+            actions.w3c_actions.pointer_action.move_to_location(center_x, center_y)
+        elif coords:
+            actions.w3c_actions.pointer_action.move_to_location(coords[0], coords[1])
+        else:
+            log("[red]Double Tap Error: No element or coords provided.[/red]")
+            return False
+
+        # Perform the sequence: Down -> Up -> Pause -> Down -> Up
+        actions.w3c_actions.pointer_action.pointer_down()
+        actions.w3c_actions.pointer_action.pause(0.08)
+        actions.w3c_actions.pointer_action.pointer_up()
+        actions.w3c_actions.pointer_action.pause(0.08)
+        actions.w3c_actions.pointer_action.pointer_down()
+        actions.w3c_actions.pointer_action.pause(0.08)
+        actions.w3c_actions.pointer_action.pointer_up()
         actions.perform()
-        log("[magenta]   * Action: Double-tapped to like.[/magenta]")
+        
+        log("[magenta]   * Action: Double-tapped.[/magenta]")
         return True
-    except: return False
+    except Exception as e:
+        log(f"[red]Error double tapping: {e}[/red]")
+        return False
 
 def perform_scroll(driver, direction="down", duration_ms=None):
     if duration_ms is None: duration_ms = random.randint(400, 800)
