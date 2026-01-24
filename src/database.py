@@ -158,6 +158,56 @@ def is_automation_on() -> bool:
         return conf.value == 'ON'
     except: return False
 
+# --- DYNAMIC CONFIG ---
+
+DEFAULT_CONFIG = {
+    "batch_size": 100,
+    "session_limit_2h": 5,
+    "min_batch_start": 1,
+    "cooldown_hours": 2.0,
+    "pattern_break": 4,
+    "min_delay": 20,
+    "max_delay": 45,
+    "do_vetting": True,
+}
+
+def get_session_config() -> Dict:
+    """
+    Fetches config from DB. If keys are missing, uses defaults.
+    """
+    import json
+    try:
+        conf_str = SystemConfig.get_or_none(SystemConfig.key == 'session_config')
+        if conf_str:
+            saved_conf = json.loads(conf_str.value)
+            # Merge with defaults to ensure all keys exist
+            return {**DEFAULT_CONFIG, **saved_conf}
+    except Exception as e:
+        print(f"[DB] Config load error: {e}")
+    
+    return DEFAULT_CONFIG
+
+def update_session_config(new_config: Dict):
+    """
+    Updates the session config JSON in the DB.
+    """
+    import json
+    # Ensure we are saving a valid JSON string
+    # We merge with existing to allow partial updates
+    current = get_session_config()
+    updated = {**current, **new_config}
+    
+    val = json.dumps(updated)
+    
+    # Upsert
+    SystemConfig.insert(key='session_config', value=val).on_conflict(
+        conflict_target=[SystemConfig.key],
+        preserve=[SystemConfig.value]
+    ).execute()
+    
+    # Force update if insert didn't happen (peewee quirk with on_conflict)
+    SystemConfig.update(value=val).where(SystemConfig.key == 'session_config').execute()
+
 def set_account_enabled(device_id: str, enabled: bool):
     """Enables or disables a specific account for automation."""
     Account.update(is_enabled=enabled).where(Account.device_id == device_id).execute()
