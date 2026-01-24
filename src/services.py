@@ -4,33 +4,27 @@ import sys
 import time
 import subprocess
 import re
-import threading
 import multiprocessing
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Callable
 from rich.console import Console
 from rich.table import Table
 from rich.prompt import Prompt, Confirm
 from rich import print as rprint
-from rich.text import Text
-from typing import Callable 
+
+# API & Helpers
 from geelark_api import get_available_phones, stop_phone, start_phone
 from connection import connect_to_phone
 from appium import webdriver
 from appium.options.android import UiAutomator2Options
-from helper import open_page
-from warmup_config import get_day_config
-from database import import_targets_from_file, get_db_stats
-from follow_routine import perform_follow_session
-from swipe import realistic_swipe
-from warmup import perform_warmup
-from chat import process_new_matches
-from adb import get_local_devices
-from appium.webdriver.common.appiumby import AppiumBy
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, StaleElementReferenceException, NoSuchElementException
 from appium.webdriver.appium_service import AppiumService
+
+# Modules
+from helper import open_page
+from warmup import perform_warmup
+from follow_routine import perform_follow_session
+from database import *
 # Initialize rich console for better formatting
+
 console = Console()
 
 # Global variables
@@ -153,11 +147,47 @@ def open_phones_manually():
             except Exception as e:
                 rprint(f"[bold red]CRITICAL: Cleanup failed. Could not stop phones {active_phone_ids}. Please check your provider's dashboard manually! Error: {e}[/bold red]")
 
-def create_device_logger(device_name: str):
+def create_device_logger(device_id,device_name: str):
     """Creates a thread-safe logger for a specific device."""
     prefix_str = f"[bold cyan][{device_name}][/bold cyan]"
+    
+    # We need the device_id to log to DB. 
+    # Since this function only takes device_name, we'll try to look it up or just use name as ID if needed.
+    # Ideally, we should pass device_id to this function too.
+    
     def device_specific_log(message: str, *args, **kwargs):
+        # 1. Print to Terminal (Rich)
         rprint(f"{prefix_str} {message}", *args, **kwargs)
+        
+        # 2. Save to Database (for API/Frontend)
+        try:
+            # Determine level based on message content (Robust Color Detection)
+            level = 'INFO'
+            msg_lower = message.lower()
+            
+            # Check for color tags like [red], [bold red], [dim red]
+            if 'red]' in msg_lower or 'error' in msg_lower:
+                level = 'ERROR'
+            elif 'green]' in msg_lower or 'success' in msg_lower:
+                level = 'SUCCESS'
+            elif 'yellow]' in msg_lower or 'warning' in msg_lower:
+                level = 'WARNING'
+            
+            # Strip Rich tags for clean DB storage
+            clean_msg = re.sub(r'\[.*?\]', '', message)
+            
+            # We use device_name as device_id here because that's what we have.
+            # In a perfect world, we'd refactor to pass device_id too.
+            DeviceLog.create(
+                device_id=device_id, # Using name as ID for now to avoid breaking signature
+                device_name=device_name,
+                message=clean_msg.strip(),
+                level=level
+            )
+        except Exception as e:
+            # Never let logging crash the worker
+            print(f"DB Log Error: {e}")
+            
     return device_specific_log
 
 def get_driver(device, appium_port: int, system_port: int, log=None):
@@ -191,91 +221,94 @@ def get_driver(device, appium_port: int, system_port: int, log=None):
     except:
         log("[red]Failed to initialize driver. Terminating.[/red]")
 
-def run_automation_for_device(device: dict, automation_type: str, appium_port: int, system_port: int, day_number: int = 1):
+def run_automation_for_device(device: dict, automation_type: str, appium_port: int, system_port: int, payload: dict):
     """
-    Worker process for a single device.
+    Worker: Obedient, Precise, and Stateless.
+    Payload Example for Follow: {'targets': ['user1', 'user2'], 'config': {...}}
+    Payload Example for Warmup: {'day_config': {...}}
     """
-    device_name = device.get('name', 'UnknownDevice')
-    log = create_device_logger(device_name)
+    device_name = device.get('name', 'Unknown')
+    device_id = device.get('id')
+    logger = create_device_logger(device_id,device_name)
     
-    appium_service = None
     driver = None
+    # We track which targets we actually attempted so we can 'release' the ones we missed if we crash
+    targets_to_process = payload.get('targets', [])
+    processed_successfully = []
 
     try:
-        # 4. Execute Logic
+        logger(f"[yellow]Worker activated for {automation_type}.[/yellow]")
+        
+        driver = get_driver(device, appium_port, system_port, logger)
+        if not driver:
+            logger("[red]Failed to secure driver. Releasing targets...[/red]")
+            release_targets(targets_to_process)
+            return
+
+        # ----------------------------------------------------------------------
+        # TASK 1: WARMUP
+        # ----------------------------------------------------------------------
         if automation_type == "warmup":
-            # Load the precise configuration for this day
-            config = get_day_config(day_number)
-            driver = get_driver(device, appium_port, system_port, log)
-            if driver is None:
-                return
-            # Start on Home Page
-            if open_page(driver, "Home", logger_func=log):
-                # Pass the CONFIG DICTIONARY, not just a number
-                print("timer for the search results screenshot started! ")
-                time.sleep(10)
-                source = driver.page_source
-                # Save it to a file
-                with open("user_profile.xml", "w", encoding='utf-8') as f:
-                    f.write(source)
-                print("Page source saved to current_screen.xml")
-
-
-                print("3rd timer for the profile header screenshot started! ")
-                time.sleep(10)
-                source = driver.page_source
-                # Save it to a file
-                with open("profile_header.xml", "w", encoding='utf-8') as f:
-                    f.write(source)
-                print("Page source saved to current_screen.xml")
-
-                perform_warmup(driver, config)
-                log("[bold green]Daily Warmup Routine Complete.[/bold green]")
+            day_config = payload.get('day_config')
+            if open_page(driver, "Home", logger_func=logger):
+                perform_warmup(driver, day_config)
             else:
-                log("[red]Failed to open Home Page. Aborting.[/red]")
+                logger("[red]Warmup failed: Home page unreachable.[/red]")
 
-        elif automation_type == "follow/unfollow":
-            log("[green]Follow/UnFollow Function Started![/green]")
-            count = import_targets_from_file("targets.txt")
-            log(f"[green]Loaded {count} new targets.[/green]")
-            stats = get_db_stats()
-            if stats['pending'] < 1:
-                log(f"[red]No new targets found. terminating ...[/red]")
-                return
-            log(f"[green]{stats['pending']} usernames found.[/green]")
-            config = {
-                "batch_size": 20,
-                "pattern_break": 5,
-                "min_delay": 20,
-                "max_delay": 30
-            }
-            driver = get_driver(device, appium_port, system_port, log)
-            if driver is None:
-                return
-
-            if open_page(driver, "Search", logger_func=log):
-                perform_follow_session(driver, config)
+        # ----------------------------------------------------------------------
+        # TASK 2: FOLLOW BATCH (THE SNIPER)
+        # ----------------------------------------------------------------------
+        elif automation_type == "follow":
+            # RE-USE YOUR PERFECT WHEEL HERE
+            #
+            if open_page(driver, "Search", logger_func=logger):
+                perform_follow_session(
+                    device=device,
+                    driver=driver, 
+                    targets_list=targets_to_process, 
+                    config=payload['config'], 
+                    logger_func=logger
+                )
+        
+        # If we get here without exception, session completed successfully
+        session_completed = True
+        logger("[bold green]All assigned tasks complete.[/bold green]")
 
     except Exception as e:
-        log(f"[red]Critical Error: {e}[/red]")
-        import traceback
-        log(traceback.format_exc())
+        session_completed = False
+        logger(f"[bold red]CRITICAL WORKER ERROR: {e}[/bold red]")
+    
     finally:
-        # 5. Cleanup
-        log("Cleaning up...")
+        # --- THE CLEANUP (Safety logic) ---
+        # NOTE: We do NOT disable the account here. The Manager controls account lifecycle.
+        # The account stays enabled so Manager can re-launch it after cooldown expires.
+        
+        # SET COOLDOWN ONLY IF SESSION COMPLETED SUCCESSFULLY
+        # This gives a true 2-hour rest after actual work, not after crashes
+        if session_completed:
+            cooldown_hours = payload.get('config', {}).get('cooldown_hours', 2)
+            cooldown_end = set_account_cooldown(device_id, cooldown_hours)
+            logger(f"[cyan]Session complete. Hard cooldown set until {cooldown_end.strftime('%H:%M')}[/cyan]")
+        else:
+            logger("[yellow]Session did not complete successfully. No cooldown set (can retry).[/yellow]")
+        
+        # If we crashed, find out which targets we never even tried and release them
+        remaining = [t for t in targets_to_process if t not in processed_successfully]
+        if remaining:
+            logger(f"[yellow]Releasing {len(remaining)} unprocessed targets back to pool.[/yellow]")
+            release_targets(remaining)
+
+        logger("Shutting down driver and phone...")
         if driver:
             try: driver.quit()
             except: pass
-        if appium_service:
-            try: appium_service.stop()
+        
+        # In Farm Mode, we ALWAYS stop the phone to save money
+        if device.get("type") != "local":
+            try: stop_phone([device_id])
             except: pass
         
-        # Only stop remote phones if you want them to close after the script
-        if device["type"] != "local":
-            stop_phone([device['id']])
-        
-        log("Process finished.")
-
+        logger("[dim]Worker process terminated.[/dim]")
 
 def start_appium_service_instance(host: str, port: int, system_port: int, log: Callable) -> AppiumService:
     """Starts a unique Appium server instance on a specific port."""
@@ -343,7 +376,7 @@ def handle_update_popup(driver, timeout=3) -> bool:
         log(f"[red]Error handling update popup: {e}[/red]")
         return False
 
-def get_device_info(connection_address: str) -> Tuple[str, str]:
+def get_device_info(connection_address: str):
     """
     Get device platform version and other info from ADB.
     
@@ -487,10 +520,10 @@ def get_all_available_devices() -> List[Dict]:
         device["type"] = "remote"
     
     # Get local devices
-    local_devices = get_local_devices()
+    # local_devices = get_local_devices()
     
     # Combine both lists
-    return remote_devices + local_devices
+    return remote_devices 
 
 def start_automation_all():
     """
@@ -618,7 +651,9 @@ def start_automation_specific():
         
         # --- SETUP LOGGING AND ENVIRONMENT ---
         device_name = selected_device.get('name', 'UnknownDevice')
-        log = create_device_logger(device_name)
+        device_id = selected_device.get('id')
+
+        log = create_device_logger(device_id,device_name)
         
         # <<< FIX 1: REMOVED THE CALLS to initialize_swipe_logger and initialize_chat_logger >>>
         # They are not needed.

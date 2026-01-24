@@ -2,13 +2,13 @@ import time
 import random
 import re
 from rich import print as rprint
-from database import get_pending_batch, update_target_status
 from nav_search import open_search_page, search_for_user, get_follow_status, click_follow
 from helper import open_page 
 from warmup import perform_scroll, perform_double_tap 
 from appium.webdriver.common.appiumby import AppiumBy
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from database import *
 
 log = rprint
 
@@ -120,27 +120,29 @@ def vet_profile_content(driver):
         log(f"[red]Vetting Error: {e}[/red]")
         driver.back() # Emergency exit
 
-def perform_follow_session(driver, config):
-    # 1. Get Targets
-    targets = get_pending_batch(config['batch_size'])
-    if not targets:
-        log("[yellow]No pending targets in Database.[/yellow]")
+def perform_follow_session(device,driver, targets_list, config, logger_func):
+    """
+    10,000 IQ Logic: This function now receives the EXACT targets 
+    from the Manager via the Worker.
+    """
+    log = logger_func # Use the device-specific logger
+    
+    if not targets_list:
+        log("[yellow]No targets provided for this session.[/yellow]")
         return
 
-    log(f"[bold green]Starting Follow Session. Targets: {len(targets)}[/bold green]")
+    log(f"[bold green]Starting Follow Session. Targets: {len(targets_list)}[/bold green]")
     successful_follows = 0
     
-    # 2. Main Loop
-    for i, target in enumerate(targets):
-        username = target.username
-        log(f"\n[cyan]--- Processing {i+1}/{len(targets)}: {username} ---[/cyan]")
+    for i, username in enumerate(targets_list):
+        log(f"\n[cyan]--- Processing {i+1}/{len(targets_list)}: {username} ---[/cyan]")
 
-        # A. Pattern Break
+        # A. Pattern Break Logic
         if i > 0 and i % config['pattern_break'] == 0:
             log("[bold magenta]Taking a Pattern Break...[/bold magenta]")
             return_to_base_state(driver)
-            if open_page(driver, "Home"):
-                human_sleep(20, 40) 
+            if open_page(driver, "Home", logger_func=log):
+                human_sleep(10, 15) 
             log("[magenta]Break over. Returning to Search.[/magenta]")
 
         # B. Navigate
@@ -149,24 +151,20 @@ def perform_follow_session(driver, config):
         
         if not search_for_user(driver, username):
             log(f"[red]Could not find user {username}. Marking failed.[/red]")
-            update_target_status(username, "failed")
+            log_action(device.get('id'), username, "failed") # Log to DB
             continue
 
-        # C. Vetting (Scroll Profile + Open Post)
+        # C. Vetting
         log("[dim]Vetting profile layout...[/dim]")
         human_sleep(1, 2)
         perform_scroll(driver, direction="down", duration_ms=500)
         human_sleep(1, 2)
         
-        # --- NEW: CONTENT VETTING ---
         if config.get('do_vetting', True):
-            # Scroll back up to top to see grid clearly
             driver.swipe(360, 600, 360, 1200, 500) 
             human_sleep(1, 2)
             vet_profile_content(driver)
-        # ----------------------------
 
-        # Scroll back up to find Follow button if we drifted
         driver.swipe(360, 600, 360, 1200, 500) 
         human_sleep(1, 2)
 
@@ -176,7 +174,8 @@ def perform_follow_session(driver, config):
         if status == "can_follow":
             log(f"[green]User is valid. Following...[/green]")
             if click_follow(driver):
-                update_target_status(username, "followed")
+                # Update our Farm Database
+                log_action(device.get('id'), username, "success")
                 successful_follows += 1
                 delay = random.uniform(config['min_delay'], config['max_delay'])
                 log(f"[dim]Sleeping for {delay:.1f}s...[/dim]")
@@ -186,10 +185,10 @@ def perform_follow_session(driver, config):
             
         elif status == "already_following":
             log("[yellow]Already following. Skipping.[/yellow]")
-            update_target_status(username, "already_followed")
+            log_action(device.get('id'), username, "already_followed")
             
         else:
             log(f"[yellow]Status '{status}'. Skipping.[/yellow]")
-            update_target_status(username, "ignored")
+            log_action(device.get('id'), username, "ignored")
 
     log(f"[bold green]Session Complete. Followed: {successful_follows}[/bold green]")
