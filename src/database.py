@@ -34,6 +34,9 @@ class Account(BaseModel):
     
     # HARD COOLDOWN: Account cannot run until this time (survives reboots)
     cooldown_until = DateTimeField(null=True)
+    
+    # Stream URL for remote viewing
+    stream_url = CharField(null=True)
 
 # --- 3. TARGETS (The Leads) ---
 class Target(BaseModel):

@@ -1,3 +1,7 @@
 fastapi
 uvicorn
 peewee
+requests
+rich
+python-dotenv
+Appium-Python-Client
