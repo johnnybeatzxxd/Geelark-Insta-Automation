@@ -92,6 +92,10 @@ def initialize_db():
 
 def sync_devices_with_api(api_devices: List[Dict]):
     """ api_devices is the list from get_all_available_devices() """
+    if api_devices is None:
+        print("[DB] API Sync skipped due to API error (None received).")
+        return
+
     api_ids = [d['id'] for d in api_devices]
     
     for device in api_devices:
@@ -114,9 +118,17 @@ def sync_devices_with_api(api_devices: List[Dict]):
                 acc.save()
 
     # Archive accounts that no longer exist in Geelark
-    (Account.update(status='archived', is_enabled=False)
-     .where((Account.device_id.not_in(api_ids)) & (Account.status == 'active'))
-     .execute())
+    # SAFETY: Only archive if we got a valid list and it's not suspiciously empty 
+    # (e.g., if we had 10 accounts and suddenly 0, but API said success, we still might want to be careful)
+    if api_ids:
+        (Account.update(status='archived', is_enabled=False)
+         .where((Account.device_id.not_in(api_ids)) & (Account.status == 'active'))
+         .execute())
+    else:
+        # If api_ids is empty, it means NO phones were returned.
+        # We only archive if we are SURE this is intended.
+        # For now, let's log a warning instead of mass-disabling everything.
+        print("[DB] API returned 0 devices. Skipping archival to prevent accidental lockout.")
 
 # --- SYSTEM CONTROLS ---
 
