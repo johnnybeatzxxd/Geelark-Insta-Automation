@@ -60,7 +60,7 @@ def kill_worker(device_id):
         # Cleanup Hardware
         log(f"Sending STOP signal to Cloud API for {device_id}...", "red")
         stop_phone([device_id])
-        update_account_runtime_status(device_id, "DISABLED")
+        update_account_runtime_status(device_id, "STOPPED")
         return True
     return False
 
