@@ -13,6 +13,7 @@ class AccountDetail(BaseModel):
     status: str
     daily_limit: int
     cooldown_until: Optional[str] = None
+    stream_url: Optional[str] = None
     stats: AccountStats
 
 class TargetBase(BaseModel):
@@ -63,6 +64,7 @@ class AccountResponse(BaseModel):
     status: str
     daily_limit: int
     cooldown_until: Optional[str] = None # Serialized datetime
+    stream_url: Optional[str] = None
 
 class AccountStats(BaseModel):
     recent_2h: int

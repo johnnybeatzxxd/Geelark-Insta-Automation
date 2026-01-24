@@ -243,7 +243,7 @@ def manager_loop():
                 launched_this_cycle += 1
                 
                 log(f"Staggering 5s...", "dim")
-                smart_sleep_and_listen(5)
+                smart_sleep_and_listen(2)
 
         # 8. STATUS REPORTING (Source of Truth for UI)
         # We loop through ALL active accounts in DB to set their display status
@@ -282,11 +282,11 @@ def manager_loop():
 
         # 9. Adaptive Sleep
         if launched_this_cycle > 0:
-            log(f"Cycle active. Pausing 15s...", "cyan")
-            smart_sleep_and_listen(15)
+            log(f"Cycle active. Pausing 5s...", "cyan")
+            smart_sleep_and_listen(5)
         else:
-            log("Manager Idle. Waiting 20...", "dim")
-            smart_sleep_and_listen(20)
+            log("Manager Idle. Waiting 5s...", "dim")
+            smart_sleep_and_listen(5)
 def main():
     try:
         rprint("[bold blue]Starting Farm Manager (Remote Control Ready)...[/bold blue]")

@@ -235,6 +235,7 @@ def run_automation_for_device(device: dict, automation_type: str, appium_port: i
     # We track which targets we actually attempted so we can 'release' the ones we missed if we crash
     targets_to_process = payload.get('targets', [])
     processed_successfully = []
+    session_completed = False
 
     try:
         logger(f"[yellow]Worker activated for {automation_type}.[/yellow]")
@@ -305,7 +306,10 @@ def run_automation_for_device(device: dict, automation_type: str, appium_port: i
         
         # In Farm Mode, we ALWAYS stop the phone to save money
         if device.get("type") != "local":
-            try: stop_phone([device_id])
+            try: 
+                stop_phone([device_id])
+                # Clear stream URL
+                Account.update(stream_url=None).where(Account.device_id == device_id).execute()
             except: pass
         
         logger("[dim]Worker process terminated.[/dim]")

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from .schemas import AutomationStatus, DeviceSelection
-from ..database import set_global_automation, is_automation_on, set_account_enabled, queue_command
+from database import set_global_automation, is_automation_on, set_account_enabled, queue_command
 
 router = APIRouter()
 
@@ -29,7 +29,10 @@ def get_automation_status():
             "runtime_status": a.runtime_status,
             "status": a.status,
             "daily_limit": a.daily_limit,
+            "status": a.status,
+            "daily_limit": a.daily_limit,
             "cooldown_until": str(a.cooldown_until) if a.cooldown_until else None,
+            "stream_url": a.stream_url,
             "stats": {
                 "recent_2h": stats['recent_2h'],
                 "rolling_24h": stats['rolling_24h']
@@ -91,9 +94,9 @@ def stop_automation(selection: DeviceSelection):
 
 # --- ACCOUNT ENDPOINTS ---
 
-from typing import List
+from typing import List, Optional
 from .schemas import AccountResponse, AccountStats
-from ..database import Account, get_account_heat_stats
+from database import Account, get_account_heat_stats
 
 @router.get("/accounts", response_model=List[AccountResponse])
 def list_accounts():
@@ -109,7 +112,8 @@ def list_accounts():
             runtime_status=a.runtime_status,
             status=a.status,
             daily_limit=a.daily_limit,
-            cooldown_until=str(a.cooldown_until) if a.cooldown_until else None
+            cooldown_until=str(a.cooldown_until) if a.cooldown_until else None,
+            stream_url=a.stream_url
         ) for a in accounts
     ]
 
@@ -155,7 +159,7 @@ def get_account_stats(device_id: str):
 # --- TARGET ENDPOINTS ---
 
 from .schemas import TargetResponse, TargetBase, TargetStats
-from ..database import Target, get_db_stats
+from database import Target, get_db_stats
 
 @router.get("/targets", response_model=List[TargetResponse])
 def list_targets(page: int = 1, limit: int = 50, status: Optional[str] = None):
@@ -201,7 +205,7 @@ def get_target_stats():
 
 from fastapi import WebSocket, WebSocketDisconnect
 from .schemas import LogResponse
-from ..database import DeviceLog
+from database import DeviceLog
 import asyncio
 
 @router.get("/logs", response_model=List[LogResponse])
@@ -268,7 +272,7 @@ async def websocket_endpoint(websocket: WebSocket, device_id: str):
 # --- CONFIG ENDPOINTS ---
 
 from .schemas import SessionConfig
-from ..database import get_session_config, update_session_config
+from database import get_session_config, update_session_config
 
 @router.get("/config", response_model=SessionConfig)
 def get_config():

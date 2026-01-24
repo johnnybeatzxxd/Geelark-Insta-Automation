@@ -29,6 +29,21 @@ def make_phone_ready(phone_id: str) -> dict:
         rprint(f"[red]Failed to start phone {phone_id}[/red]")
         return {}
     
+    # Extract URL and save to DB
+    try:
+        # start_response is a list of dicts based on geelark_api.py:388
+        # But wait, start_phone in geelark_api.py returns success_details list directly if code==0
+        # Let's verify geelark_api.py again.
+        # Yes: return success_details
+        if isinstance(start_response, list) and len(start_response) > 0:
+            url = start_response[0].get("url")
+            if url:
+                from database import Account
+                Account.update(stream_url=url).where(Account.device_id == phone_id).execute()
+                rprint(f"[green]Stream URL saved for {phone_id}[/green]")
+    except Exception as e:
+        rprint(f"[red]Failed to save stream URL: {e}[/red]")
+    
     rprint(f"[yellow]Starting phone {phone_id}...[/yellow]")
     
     rprint("[yellow]Waiting for phone to start...[/yellow]")
