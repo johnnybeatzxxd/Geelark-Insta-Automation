@@ -8,11 +8,38 @@ router = APIRouter()
 
 @router.get("/automation/status", response_model=AutomationStatus)
 def get_automation_status():
-    """Get the current global automation state."""
+    """
+    Get the current global automation state.
+    Returns detailed stats for every account.
+    """
     is_on = is_automation_on()
+    
+    # Fetch all accounts
+    accounts = list(Account.select())
+    account_details = []
+    
+    for a in accounts:
+        # Get dynamic stats for each account
+        stats = get_account_heat_stats(a.device_id)
+        
+        account_details.append({
+            "device_id": a.device_id,
+            "profile_name": a.profile_name,
+            "is_enabled": a.is_enabled,
+            "runtime_status": a.runtime_status,
+            "status": a.status,
+            "daily_limit": a.daily_limit,
+            "cooldown_until": str(a.cooldown_until) if a.cooldown_until else None,
+            "stats": {
+                "recent_2h": stats['recent_2h'],
+                "rolling_24h": stats['rolling_24h']
+            }
+        })
+
     return {
         "status": "ON" if is_on else "OFF",
-        "message": "System is running" if is_on else "System is paused"
+        "message": "System is running" if is_on else "System is paused",
+        "accounts": account_details
     }
 
 @router.post("/automation/start", response_model=AutomationStatus)
@@ -124,3 +151,137 @@ def get_account_stats(device_id: str):
     """Get heat stats (activity counts) for an account."""
     stats = get_account_heat_stats(device_id)
     return stats
+
+# --- TARGET ENDPOINTS ---
+
+from .schemas import TargetResponse, TargetBase, TargetStats
+from ..database import Target, get_db_stats
+
+@router.get("/targets", response_model=List[TargetResponse])
+def list_targets(page: int = 1, limit: int = 50, status: Optional[str] = None):
+    """List targets with optional status filter and pagination."""
+    query = Target.select()
+    if status:
+        query = query.where(Target.status == status)
+    
+    # Pagination
+    targets = query.order_by(Target.added_at.desc()).paginate(page, limit)
+    
+    return [
+        TargetResponse(
+            username=t.username,
+            source=t.source,
+            status=t.status,
+            reserved_by=t.reserved_by.device_id if t.reserved_by else None,
+            added_at=str(t.added_at)
+        ) for t in targets
+    ]
+
+@router.post("/targets", response_model=dict)
+def add_targets(targets: List[TargetBase]):
+    """Bulk add targets."""
+    # Prepare data for bulk insert
+    data = [{"username": t.username.lower(), "source": t.source} for t in targets]
+    
+    # Use insert_many with on_conflict_ignore to skip duplicates
+    with Target._meta.database.atomic():
+        for i in range(0, len(data), 100):
+            chunk = data[i:i+100]
+            Target.insert_many(chunk).on_conflict_ignore().execute()
+            
+    return {"message": f"Processed {len(targets)} targets (duplicates ignored)."}
+
+@router.get("/targets/stats", response_model=TargetStats)
+def get_target_stats():
+    """Get counts of targets by status."""
+    stats = get_db_stats()
+    return stats
+
+# --- LOG ENDPOINTS ---
+
+from fastapi import WebSocket, WebSocketDisconnect
+from .schemas import LogResponse
+from ..database import DeviceLog
+import asyncio
+
+@router.get("/logs", response_model=List[LogResponse])
+def get_logs(limit: int = 100, device_id: Optional[str] = None):
+    """Get latest logs, optionally filtered by device."""
+    query = DeviceLog.select().order_by(DeviceLog.timestamp.desc()).limit(limit)
+    if device_id:
+        query = query.where(DeviceLog.device_id == device_id)
+        
+    return [
+        LogResponse(
+            id=l.id,
+            device_id=l.device_id,
+            device_name=l.device_name,
+            message=l.message,
+            level=l.level,
+            timestamp=str(l.timestamp)
+        ) for l in query
+    ]
+
+@router.websocket("/logs/ws/{device_id}")
+async def websocket_endpoint(websocket: WebSocket, device_id: str):
+    """
+    Real-time log streamer. 
+    Currently implements a 'tail -f' style poll from DB for simplicity.
+    """
+    await websocket.accept()
+    last_id = 0
+    
+    # Send initial batch of recent logs
+    recent = (DeviceLog.select()
+              .where(DeviceLog.device_id == device_id)
+              .order_by(DeviceLog.timestamp.desc())
+              .limit(10))
+    
+    # We want them in chronological order for the stream
+    for l in reversed(list(recent)):
+        await websocket.send_json({
+            "timestamp": str(l.timestamp),
+            "level": l.level,
+            "message": l.message
+        })
+        last_id = max(last_id, l.id)
+        
+    try:
+        while True:
+            # Poll for new logs every second
+            await asyncio.sleep(1)
+            new_logs = (DeviceLog.select()
+                        .where((DeviceLog.device_id == device_id) & (DeviceLog.id > last_id))
+                        .order_by(DeviceLog.timestamp.asc()))
+            
+            for l in new_logs:
+                await websocket.send_json({
+                    "timestamp": str(l.timestamp),
+                    "level": l.level,
+                    "message": l.message
+                })
+                last_id = l.id
+                
+    except WebSocketDisconnect:
+        print(f"Client disconnected from log stream for {device_id}")
+
+# --- CONFIG ENDPOINTS ---
+
+from .schemas import SessionConfig
+from ..database import get_session_config, update_session_config
+
+@router.get("/config", response_model=SessionConfig)
+def get_config():
+    """Get current session configuration."""
+    return get_session_config()
+
+@router.patch("/config", response_model=SessionConfig)
+def update_config(config: SessionConfig):
+    """
+    Update session configuration.
+    The Manager will pick up these changes on its next cycle (within seconds).
+    """
+    # Convert Pydantic model to dict, excluding defaults if you wanted partial updates,
+    # but here we want to save the whole state.
+    update_session_config(config.dict())
+    return get_session_config()

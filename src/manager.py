@@ -9,16 +9,9 @@ from services import run_automation_for_device, get_all_available_devices
 from geelark_api import stop_phone
 
 # --- CONFIGURATION ---
-SESSION_CONFIG = {
-    "batch_size": 100,           # Max targets given to a single worker run
-    "session_limit_2h": 5,       # Max follows allowed before hard cooldown triggers
-    "min_batch_start": 1,        # Min targets required to justify starting a worker
-    "cooldown_hours": 2,         # Hard cooldown duration after completing a session
-    "pattern_break": 4,
-    "min_delay": 20,
-    "max_delay": 45,
-    "do_vetting": True,
-}
+# --- CONFIGURATION ---
+# Config is now dynamic, fetched from DB in the loop
+
 
 # Tracks running Python processes: { "device_id": <Process Object> }
 active_processes = {} 
@@ -130,7 +123,10 @@ def manager_loop():
     log("FACTORY HEARTBEAT STARTED", "bold green")
     
     while True:
-        # 0. Check Commands (Priority 1)
+        # 0. Load Dynamic Config
+        SESSION_CONFIG = db.get_session_config()
+
+        # 0.5 Check Commands (Priority 1)
         process_command_queue()
 
         # 1. Global Switch Check
