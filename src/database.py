@@ -227,6 +227,10 @@ def set_account_enabled(device_id: str, enabled: bool):
     """Enables or disables a specific account for automation."""
     Account.update(is_enabled=enabled).where(Account.device_id == device_id).execute()
 
+def disable_all_accounts():
+    """Disables all active accounts."""
+    Account.update(is_enabled=False).where(Account.status == 'active').execute()
+
 def get_runnable_accounts() -> List[Account]:
     """Returns accounts that are both Active on Cloud and Enabled by User."""
     return list(Account.select().where(

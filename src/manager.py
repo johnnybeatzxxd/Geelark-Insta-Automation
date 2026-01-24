@@ -67,12 +67,17 @@ def process_command_queue():
     try:
         if cmd.command == "STOP_DEVICE":
             kill_worker(cmd.target_id)
+            db.set_account_enabled(cmd.target_id, False) # Disable this specific account
             
         elif cmd.command == "STOP_ALL":
             log("STOP ALL command received. Killing all workers...", "bold red")
             for dev_id in list(active_processes.keys()):
                 kill_worker(dev_id)
-            # Optional: Turn off the Global Switch so it doesn't restart
+            
+            # Disable ALL active accounts so they don't restart
+            db.disable_all_accounts()
+            
+            # Turn off the Global Switch so it doesn't restart
             db.set_global_automation(False)
 
         db.complete_command(cmd.id, "completed") # Ensure this exists in database.py
