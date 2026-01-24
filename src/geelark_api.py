@@ -73,6 +73,17 @@ def request_with_retry(
                 response = requests.get(url, headers=headers, timeout=10)
             else:
                 raise ValueError(f"Unsupported HTTP method: {method}")
+            
+            # Handle Rate Limiting (429)
+            if response.status_code == 429:
+                print(f"[Attempt {attempt}/{retries}] Rate limit hit (429).")
+                if attempt < retries:
+                    # Longer backoff for rate limits
+                    wait_time = backoff * 10 
+                    print(f"Backing off for {wait_time} seconds...")
+                    time.sleep(wait_time)
+                    continue
+            
             response.raise_for_status()
             return response
         except (requests.exceptions.RequestException) as e:
@@ -127,13 +138,17 @@ def get_all_cloud_phones(
     if response:
         try:
             response_data = response.json()
-            return response_data["data"]["items"]
+            if response_data.get("code") == 0:
+                return response_data["data"]["items"]
+            else:
+                print(f"API Error in get_all_cloud_phones: {response_data.get('msg')}")
+                return None # Return None on API error
         except Exception as e:
             print(f"Failed to parse response JSON: {e}")
-            return []
+            return None
     else:
         print("Could not retrieve cloud phones after retries.")
-        return []
+        return None
 
 def start_phone(ids: list[str]) -> dict | None:
     """
@@ -264,9 +279,9 @@ def get_available_phones(adb_enabled=True) -> list[dict]:
     """
     # Get all phones
     phones = get_all_cloud_phones()
-    if not phones:
-        print("No phones retrieved.")
-        return []
+    if phones is None:
+        print("No phones retrieved due to API error.")
+        return None # Propagate None to indicate error
 
     # Filter and format available phones
     available_phones = []

@@ -168,11 +168,29 @@ def manager_loop():
             smart_sleep_and_listen(30)
             continue
 
-        # 6. API Sync
+        # 6. API Sync (Throttled to once per 60s)
         try:
-            live_api_devices = get_all_available_devices()
-            db.sync_devices_with_api(live_api_devices)
-            device_map = {d['id']: d for d in live_api_devices}
+            now = time.time()
+            if not hasattr(manager_loop, 'last_sync_time'):
+                manager_loop.last_sync_time = 0
+            
+            if now - manager_loop.last_sync_time > 60:
+                log("Syncing with Geelark API...", "dim")
+                live_api_devices = get_all_available_devices()
+                if live_api_devices is not None:
+                    db.sync_devices_with_api(live_api_devices)
+                    manager_loop.last_sync_time = now
+                    # Update local map
+                    manager_loop.device_map = {d['id']: d for d in live_api_devices}
+                else:
+                    log("API Sync Failed. Using cached device data.", "yellow")
+            
+            device_map = getattr(manager_loop, 'device_map', {})
+            if not device_map and 'live_api_devices' in locals():
+                 # Fallback for first run if sync succeeded
+                 device_map = {d['id']: d for d in live_api_devices}
+                 manager_loop.device_map = device_map
+
         except Exception as e:
             log(f"API Sync Warning: {e}", "yellow")
             smart_sleep_and_listen(30)

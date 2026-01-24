@@ -67,7 +67,7 @@ def make_phone_ready(phone_id: str) -> dict:
             rprint(f"[red]Phone {phone_id} is not available (status: {phone_status['status']})[/red]")
             return {}
             
-        time.sleep(3)
+        time.sleep(10)
     
     # Get ADB information
     adb_info = get_adb_information([phone_id])
