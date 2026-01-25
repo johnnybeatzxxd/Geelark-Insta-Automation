@@ -82,6 +82,7 @@ def process_command_queue():
         elif cmd.command == "STOP_ALL":
             log("STOP ALL command received. Killing all workers...", "bold red")
             for dev_id in list(active_processes.keys()):
+                db.set_account_enabled(dev_id, False) # Disable this specific account
                 kill_worker(dev_id)
             
             # Disable ALL active accounts so they don't restart
