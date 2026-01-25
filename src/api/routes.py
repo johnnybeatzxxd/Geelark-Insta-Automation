@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
-from .schemas import AutomationStatus, DeviceSelection
-from database import set_global_automation, is_automation_on, set_account_enabled, queue_command
+from .schemas import AutomationStatus, DeviceSelection, AccountResponse
+from database import set_global_automation, is_automation_on, set_account_enabled, queue_command, clear_account_cooldown
+from urllib.parse import urlparse
 
 router = APIRouter()
 
@@ -179,8 +180,19 @@ def list_targets(page: int = 1, limit: int = 50, status: Optional[str] = None):
 @router.post("/targets", response_model=dict)
 def add_targets(targets: List[TargetBase]):
     """Bulk add targets."""
+    
+    def extract_username(input_str: str) -> str:
+        input_str = input_str.strip().lstrip('@')
+        if input_str.startswith('http://') or input_str.startswith('https://'):
+            parsed = urlparse(input_str)
+            if parsed.hostname and 'instagram.com' in parsed.hostname:
+                path = parsed.path.strip('/')
+                if path:
+                    return path.split('/')[0].lower()
+        return input_str.lower()
+    
     # Prepare data for bulk insert
-    data = [{"username": t.username.lower(), "source": t.source} for t in targets]
+    data = [{"username": extract_username(t.username), "source": t.source} for t in targets]
     
     # Use insert_many with on_conflict_ignore to skip duplicates
     with Target._meta.database.atomic():
@@ -284,3 +296,23 @@ def update_config(config: SessionConfig):
     # but here we want to save the whole state.
     update_session_config(config.dict())
     return get_session_config()
+
+@router.patch("/accounts/{device_id}/clear_cooldown", response_model=AccountResponse)
+def clear_cooldown(device_id: str):
+    """Clear cooldown for a specific account."""
+    clear_account_cooldown(device_id)
+    
+    try:
+        a = Account.get(Account.device_id == device_id)
+        return AccountResponse(
+            device_id=a.device_id,
+            profile_name=a.profile_name,
+            is_enabled=a.is_enabled,
+            runtime_status=a.runtime_status,
+            status=a.status,
+            daily_limit=a.daily_limit,
+            cooldown_until=str(a.cooldown_until) if a.cooldown_until else None,
+            stream_url=a.stream_url
+        )
+    except Account.DoesNotExist:
+        raise HTTPException(status_code=404, detail="Account not found")

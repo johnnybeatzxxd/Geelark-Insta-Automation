@@ -308,6 +308,7 @@ def run_automation_for_device(device: dict, automation_type: str, appium_port: i
                     set_account_enabled(device_id, False)
             else:
                 # --- FAILURE CASE ---
+                set_account_enabled(device_id, False)
                 # Do NOT disable, do NOT set cooldown. Allow Manager to retry or handle it.
                 logger("[yellow]Session ended with errors/crash. No cooldown set (ready for immediate retry).[/yellow]")
 
