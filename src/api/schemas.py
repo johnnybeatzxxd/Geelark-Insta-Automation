@@ -39,14 +39,15 @@ class LogResponse(BaseModel):
     timestamp: str
 
 class SessionConfig(BaseModel):
-    batch_size: int = 100
-    session_limit_2h: int = 5
-    min_batch_start: int = 1
-    cooldown_hours: float = 2.0
-    pattern_break: int = 4
-    min_delay: int = 20
-    max_delay: int = 45
-    do_vetting: bool = True
+    batch_size: int
+    session_limit_2h: int
+    min_batch_start: int
+    cooldown_hours: float
+    pattern_break: int
+    min_delay: int
+    max_delay: int
+    do_vetting: bool
+    continuous_mode: bool  
 
 class AutomationStatus(BaseModel):
     status: str  # "ON" or "OFF"
