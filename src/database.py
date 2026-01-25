@@ -38,6 +38,9 @@ class Account(BaseModel):
     # Stream URL for remote viewing
     stream_url = CharField(null=True)
 
+    cached_2h_count = IntegerField(default=0)
+    cached_24h_count = IntegerField(default=0)
+
 # --- 3. TARGETS (The Leads) ---
 class Target(BaseModel):
     username = CharField(unique=True)
@@ -184,6 +187,7 @@ DEFAULT_CONFIG = {
     "min_delay": 20,
     "max_delay": 45,
     "do_vetting": True,
+    "continuous_mode": True
 }
 
 def get_session_config() -> Dict:

@@ -280,39 +280,63 @@ def run_automation_for_device(device: dict, automation_type: str, appium_port: i
         logger(f"[bold red]CRITICAL WORKER ERROR: {e}[/bold red]")
     
     finally:
-        # --- THE CLEANUP (Safety logic) ---
-        # NOTE: We do NOT disable the account here. The Manager controls account lifecycle.
-        # The account stays enabled so Manager can re-launch it after cooldown expires.
-        
-        # SET COOLDOWN ONLY IF SESSION COMPLETED SUCCESSFULLY
-        # This gives a true 2-hour rest after actual work, not after crashes
-        if session_completed:
-            cooldown_hours = payload.get('config', {}).get('cooldown_hours', 2)
-            cooldown_end = set_account_cooldown(device_id, cooldown_hours)
-            logger(f"[cyan]Session complete. Hard cooldown set until {cooldown_end.strftime('%H:%M')}[/cyan]")
-        else:
-            logger("[yellow]Session did not complete successfully. No cooldown set (can retry).[/yellow]")
-        
-        # If we crashed, find out which targets we never even tried and release them
-        remaining = [t for t in targets_to_process if t not in processed_successfully]
-        if remaining:
-            logger(f"[yellow]Releasing {len(remaining)} unprocessed targets back to pool.[/yellow]")
-            release_targets(remaining)
+            # ------------------------------------------------------------------
+            # LIFECYCLE MANAGEMENT & CLEANUP
+            # ------------------------------------------------------------------
+            
+            # 1. Extract Config (No Hardcoding)
+            config = payload.get('config', {})
+            continuous_mode = config.get('continuous_mode', False) # Default to True if missing
+            cooldown_hours = config.get('cooldown_hours')         # This comes from your DB config
 
-        logger("Shutting down driver and phone...")
-        if driver:
-            try: driver.quit()
-            except: pass
-        
-        # In Farm Mode, we ALWAYS stop the phone to save money
-        if device.get("type") != "local":
-            try: 
-                stop_phone([device_id])
-                # Clear stream URL
-                Account.update(stream_url=None).where(Account.device_id == device_id).execute()
-            except: pass
-        
-        logger("[dim]Worker process terminated.[/dim]")
+            # 2. Update Account State based on Success/Failure
+            if session_completed:
+                if continuous_mode:
+                    # --- CONTINUOUS MODE (Farmer) ---
+                    # Schedule the next run by setting the hard cooldown
+                    if cooldown_hours is not None:
+                        cooldown_end = set_account_cooldown(device_id, float(cooldown_hours))
+                        logger(f"[cyan]Session Success. Continuous Mode ON. Cooldown set for {cooldown_hours}h (until {cooldown_end.strftime('%H:%M')}).[/cyan]")
+                    else:
+                        # Fallback safety only if config is corrupted
+                        logger("[red]Config Error: Cooldown hours missing. Defaulting to 1h.[/red]")
+                        set_account_cooldown(device_id, 1.0)
+                else:
+                    # --- ONE-OFF MODE (Task Runner) ---
+                    # Disable the account so the Manager ignores it next cycle
+                    logger("[cyan]Session Success. Continuous Mode OFF. Disabling account.[/cyan]")
+                    set_account_enabled(device_id, False)
+            else:
+                # --- FAILURE CASE ---
+                # Do NOT disable, do NOT set cooldown. Allow Manager to retry or handle it.
+                logger("[yellow]Session ended with errors/crash. No cooldown set (ready for immediate retry).[/yellow]")
+
+            # 3. Release Unprocessed Targets (Data Safety)
+            # Calculates which targets were assigned but never touched due to the stop/crash
+            remaining = [t for t in targets_to_process if t not in processed_successfully]
+            if remaining:
+                logger(f"[yellow]Releasing {len(remaining)} unprocessed targets back to pending pool.[/yellow]")
+                release_targets(remaining)
+
+            # 4. Hardware Shutdown (Billing Protection)
+            logger("Shutting down driver and phone...")
+            
+            if driver:
+                try: 
+                    driver.quit()
+                except Exception: 
+                    pass
+            
+            # Always stop cloud phones to stop billing
+            if device.get("type") != "local":
+                try: 
+                    stop_phone([device_id])
+                    # Clean up UI artifact
+                    Account.update(stream_url=None).where(Account.device_id == device_id).execute()
+                except Exception as e: 
+                    logger(f"[red]Error stopping phone (Billing Risk): {e}[/red]")
+            
+            logger("[dim]Worker process terminated.[/dim]")
 
 def start_appium_service_instance(host: str, port: int, system_port: int, log: Callable) -> AppiumService:
     """Starts a unique Appium server instance on a specific port."""

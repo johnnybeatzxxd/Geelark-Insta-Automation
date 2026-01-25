@@ -10,18 +10,15 @@ router = APIRouter()
 def get_automation_status():
     """
     Get the current global automation state.
-    Returns detailed stats for every account.
+    Returns detailed stats for every account (READ ONLY - FAST).
     """
     is_on = is_automation_on()
     
-    # Fetch all accounts
+    # Fetch all accounts - NO CALCULATIONS needed here anymore
     accounts = list(Account.select())
     account_details = []
     
     for a in accounts:
-        # Get dynamic stats for each account
-        stats = get_account_heat_stats(a.device_id)
-        
         account_details.append({
             "device_id": a.device_id,
             "profile_name": a.profile_name,
@@ -29,13 +26,11 @@ def get_automation_status():
             "runtime_status": a.runtime_status,
             "status": a.status,
             "daily_limit": a.daily_limit,
-            "status": a.status,
-            "daily_limit": a.daily_limit,
             "cooldown_until": str(a.cooldown_until) if a.cooldown_until else None,
             "stream_url": a.stream_url,
             "stats": {
-                "recent_2h": stats['recent_2h'],
-                "rolling_24h": stats['rolling_24h']
+                "recent_2h": a.cached_2h_count,
+                "rolling_24h": a.cached_24h_count
             }
         })
 

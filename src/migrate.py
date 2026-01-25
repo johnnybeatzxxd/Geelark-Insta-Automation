@@ -1,20 +1,51 @@
-# migrate.py
-from database import db, Account
+# migrate_db.py
+import json
+from peewee import SqliteDatabase
+from database import DB_NAME, SystemConfig
 
-try:
-    print("--- STARTING MIGRATION ---")
-    db.connect(reuse_if_open=True)
+db = SqliteDatabase(DB_NAME)
+
+def run_migration():
+    print(f"Connecting to {DB_NAME}...")
+    db.connect()
     
-    # Add stream_url column to Account table if it doesn't exist
-    cursor = db.execute_sql("PRAGMA table_info(account)")
-    columns = [row[1] for row in cursor.fetchall()]
-    
-    if 'stream_url' not in columns:
-        print("Adding 'stream_url' column to Account table...")
-        db.execute_sql("ALTER TABLE account ADD COLUMN stream_url VARCHAR(255) NULL")
-        print('✅ Migration complete: stream_url column added to Account table')
-    else:
-        print('✅ stream_url column already exists, skipping migration')
-        
-except Exception as e:
-    print(f'❌ Migration error: {e}')
+    # 1. ADD COLUMNS TO ACCOUNT TABLE
+    # SQLite allows adding columns via raw SQL
+    try:
+        db.execute_sql('ALTER TABLE account ADD COLUMN cached_2h_count INTEGER DEFAULT 0')
+        print("[SUCCESS] Added 'cached_2h_count' column.")
+    except Exception as e:
+        print(f"[SKIP] 'cached_2h_count' likely exists: {e}")
+
+    try:
+        db.execute_sql('ALTER TABLE account ADD COLUMN cached_24h_count INTEGER DEFAULT 0')
+        print("[SUCCESS] Added 'cached_24h_count' column.")
+    except Exception as e:
+        print(f"[SKIP] 'cached_24h_count' likely exists: {e}")
+
+    # 2. UPDATE SESSION CONFIG JSON
+    try:
+        conf = SystemConfig.get_or_none(SystemConfig.key == 'session_config')
+        if conf:
+            current_config = json.loads(conf.value)
+            
+            # Add 'continuous_mode' if missing
+            if 'continuous_mode' not in current_config:
+                current_config['continuous_mode'] = True # Default to True (Old behavior)
+                print("[UPDATE] Added 'continuous_mode=True' to session config.")
+                
+            # Update DB
+            conf.value = json.dumps(current_config)
+            conf.save()
+            print("[SUCCESS] Config JSON updated.")
+        else:
+            print("[INFO] No session_config found in DB. Defaults will be used.")
+            
+    except Exception as e:
+        print(f"[ERROR] updating config: {e}")
+
+    db.close()
+    print("Migration Complete.")
+
+if __name__ == "__main__":
+    run_migration()
