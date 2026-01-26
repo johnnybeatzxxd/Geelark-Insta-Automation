@@ -243,7 +243,7 @@ def run_automation_for_device(device: dict, automation_type: str, appium_port: i
         driver = get_driver(device, appium_port, system_port, logger)
         if not driver:
             logger("[red]Failed to secure driver. Releasing targets...[/red]")
-            release_targets(targets_to_process)
+            release_reserved_targets(device_id)
             return
 
         # ----------------------------------------------------------------------
@@ -317,7 +317,7 @@ def run_automation_for_device(device: dict, automation_type: str, appium_port: i
             remaining = [t for t in targets_to_process if t not in processed_successfully]
             if remaining:
                 logger(f"[yellow]Releasing {len(remaining)} unprocessed targets back to pending pool.[/yellow]")
-                release_targets(remaining)
+                release_reserved_targets(device_id)
 
             # 4. Hardware Shutdown (Billing Protection)
             logger("Shutting down driver and phone...")

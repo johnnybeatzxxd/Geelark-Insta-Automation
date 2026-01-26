@@ -349,13 +349,21 @@ def log_action(static_device_id: str, target_username: str, result: str):
     except Exception as e:
         print(f"[DB ERROR] Critical logging failure: {e}")
 
-def release_targets(usernames: List[str],device_id=None):
-    """Rolls back 'reserved' targets to 'pending' if a process crashes."""
-    if not usernames: return
-    (Target.update(status='pending', reserved_by=None, reserved_at=None)
-     .where(Target.username.in_(usernames))
-     .execute())
-
+def release_reserved_targets(device_id):
+    """Rolls back 'reserved' targets to 'pending' based on the device_id."""
+    rows_updated = (Target.update(
+                        status='pending', 
+                        reserved_by=None, 
+                        reserved_at=None
+                    )
+                    .where(
+                        (Target.reserved_by == device_id) & 
+                        (Target.status == 'reserved')
+                    )
+                    .execute())
+    
+    print(f"Released {rows_updated} targets for device {device_id}")
+    return rows_updated
 # --- THE JANITOR (Auto-Recovery) ---
 
 def run_janitor_cleanup(timeout_minutes=30):
