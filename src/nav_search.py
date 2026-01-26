@@ -139,4 +139,11 @@ def click_follow(driver):
         btn = driver.find_element(AppiumBy.ID, ID_FOLLOW_BUTTON)
         btn.click()
         return True
-    except: return False
+    except: 
+        try:
+            btn = WebDriverWait(driver,5).until(EC.presence_of_element_located((By.XPATH, "//*[contains(@text, 'Follow')]")))
+            btn.click()
+            return True
+        except:
+            return False
+    return False
