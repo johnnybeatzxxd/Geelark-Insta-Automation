@@ -250,8 +250,8 @@ def get_adb_information(ids: list[str]) -> list[dict]:
         url=api_url,
         headers=headers,
         payload=json.dumps(payload),
-        retries=3,
-        backoff=5,
+        retries=5,
+        backoff=15,
     )
 
     if response:
