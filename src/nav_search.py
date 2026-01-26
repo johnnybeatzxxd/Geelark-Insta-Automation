@@ -135,15 +135,50 @@ def get_follow_status(driver):
         return "not_found"
 
 def click_follow(driver):
+    log("[dim]Initiating Follow sequence...[/dim]")
+    
+    # --- STEP 1: Click the Main Profile Button ---
     try:
-        btn = driver.find_element(AppiumBy.ID, ID_FOLLOW_BUTTON)
-        btn.click()
-        return True
-    except: 
-        try:
-            btn = WebDriverWait(driver,5).until(EC.presence_of_element_located((By.XPATH, "//*[contains(@text, 'Follow')]")))
-            btn.click()
+        main_btn = WebDriverWait(driver, 3).until(
+            EC.element_to_be_clickable((AppiumBy.ID, ID_FOLLOW_BUTTON))
+        )
+        main_btn.click()
+        log("[blue]Clicked main profile button.[/blue]")
+    except Exception as e:
+        log(f"[red]Could not find main follow button: {e}[/red]")
+        return False
+
+    # --- STEP 2: Handle Potential "Review Info" Popup ---
+    time.sleep(2) # Wait for animation/popup to trigger
+
+    try:
+        # Check if the main button successfully changed to "Following" or "Requested"
+        # We re-find the element to avoid StaleElementReferenceException
+        main_btn = driver.find_element(AppiumBy.ID, ID_FOLLOW_BUTTON)
+        status_text = main_btn.text.lower()
+
+        if "following" in status_text or "requested" in status_text:
+            log("[green]Success: Status changed to Following/Requested immediately.[/green]")
             return True
-        except:
-            return False
-    return False
+        
+        # If we are here, the status didn't change, so the Popup is likely open.
+        log("[yellow]Status didn't change. Looking for Popup button...[/yellow]")
+
+        # --- STEP 3: Find the Popup Button by Text ---
+        # We use UiSelector to find a clickable element with text "Follow"
+        # The popup is on top, so this usually grabs the popup button, not the background one.
+        popup_btn = WebDriverWait(driver, 3).until(
+            EC.element_to_be_clickable((
+                AppiumBy.ANDROID_UI_AUTOMATOR, 
+                'new UiSelector().text("Follow").clickable(true)'
+            ))
+        )
+        popup_btn.click()
+        log("[green]Clicked 'Follow' inside the popup.[/green]")
+        return True
+
+    except Exception as e:
+        # If we are here, maybe it wasn't a popup, but the follow just failed?
+        # Or maybe the button text is "Follow Back"?
+        log(f"[red]Popup handling failed or no popup found: {e}[/red]")
+        return False
