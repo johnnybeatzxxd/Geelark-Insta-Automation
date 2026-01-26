@@ -300,7 +300,7 @@ def run_automation_for_device(device: dict, automation_type: str, appium_port: i
                     else:
                         # Fallback safety only if config is corrupted
                         logger("[red]Config Error: Cooldown hours missing. Defaulting to 1h.[/red]")
-                        set_account_cooldown(device_id, 1.0)
+                        set_account_cooldown(device_id, 2.0)
                 else:
                     # --- ONE-OFF MODE (Task Runner) ---
                     # Disable the account so the Manager ignores it next cycle

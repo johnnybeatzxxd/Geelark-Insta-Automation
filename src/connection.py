@@ -23,8 +23,7 @@ def make_phone_ready(phone_id: str) -> dict:
     """
     # Start the phone
     start_response = start_phone([phone_id])
-    print("this is start message")
-    print(start_response)
+    print(f"Start Command Sent to: {phone_id}")
     if not start_response:
         rprint(f"[red]Failed to start phone {phone_id}[/red]")
         return {}
@@ -49,6 +48,7 @@ def make_phone_ready(phone_id: str) -> dict:
     rprint("[yellow]Waiting for phone to start...[/yellow]")
     # Wait for phone to be fully started
     while True:
+        time.sleep(15)
         status_info = get_phone_status([phone_id])
         
         # Check if we got any successful status information
@@ -67,10 +67,12 @@ def make_phone_ready(phone_id: str) -> dict:
             rprint(f"[red]Phone {phone_id} is not available (status: {phone_status['status']})[/red]")
             return {}
             
-        time.sleep(10)
     
     # Get ADB information
     adb_info = get_adb_information([phone_id])
+    if not adb_info:
+        rprint("[red]Failed to get ADB information. Retrying one more time![/red]")
+        adb_info = get_adb_information([phone_id])
     if not adb_info:
         rprint("[red]Failed to get ADB information[/red]")
         return {}

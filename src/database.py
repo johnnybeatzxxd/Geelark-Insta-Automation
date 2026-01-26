@@ -349,7 +349,7 @@ def log_action(static_device_id: str, target_username: str, result: str):
     except Exception as e:
         print(f"[DB ERROR] Critical logging failure: {e}")
 
-def release_targets(usernames: List[str]):
+def release_targets(usernames: List[str],device_id=None):
     """Rolls back 'reserved' targets to 'pending' if a process crashes."""
     if not usernames: return
     (Target.update(status='pending', reserved_by=None, reserved_at=None)
