@@ -409,4 +409,3 @@ def get_account_cooldown_remaining(device_id: str) -> Optional[int]:
 if not os.path.exists(DB_NAME):
     initialize_db()
 
-import_targets_from_file()
