@@ -110,6 +110,17 @@ def search_for_user(driver, username):
             return False
 
     except Exception as e:
+        # --- THIS IS THE CRITICAL FIX ---
+        # We check if the error is a Network/Driver Crash.
+        # If it is, we RAISE it. The Worker Loop will catch it and trigger Auto-Heal.
+        err_str = str(e)
+        critical_errors = ["Connection refused", "Connection reset", "closed connection", "InvalidSessionId", "Max retries exceeded"]
+        
+        if any(x in err_str for x in critical_errors):
+            # Do NOT log here, let the Auto-Heal log it.
+            raise e 
+        
+        # If it's just a logic error (element not found, etc), return False as usual
         log(f"[red]Search Routine Error: {e}[/red]")
         return False
 
@@ -134,26 +145,32 @@ def get_follow_status(driver):
     except:
         return "not_found"
 
+
 def click_follow(driver):
     log("[dim]Initiating Follow sequence...[/dim]")
     
-    # --- STEP 1: Click the Main Profile Button ---
     try:
-        main_btn = WebDriverWait(driver, 3).until(
-            EC.element_to_be_clickable((AppiumBy.ID, ID_FOLLOW_BUTTON))
-        )
-        main_btn.click()
-        log("[blue]Clicked main profile button.[/blue]")
-    except Exception as e:
-        log(f"[red]Could not find main follow button: {e}[/red]")
-        return False
+        # --- STEP 1: Click the Main Profile Button ---
+        try:
+            main_btn = WebDriverWait(driver, 3).until(
+                EC.element_to_be_clickable((AppiumBy.ID, ID_FOLLOW_BUTTON))
+            )
+            main_btn.click()
+            log("[blue]Clicked main profile button.[/blue]")
+        except Exception as e:
+            # CHECK FOR NETWORK ERRORS (Auto-Heal Trigger)
+            err_str = str(e)
+            if any(x in err_str for x in ["Connection refused", "Connection reset", "closed connection", "InvalidSessionId"]):
+                raise e 
+            
+            log(f"[red]Could not find main follow button: {e}[/red]")
+            return False
 
-    # --- STEP 2: Handle Potential "Review Info" Popup ---
-    time.sleep(2) # Wait for animation/popup to trigger
+        # --- STEP 2: Handle Potential "Review Info" Popup ---
+        time.sleep(2) # Wait for animation/popup to trigger
 
-    try:
-        # Check if the main button successfully changed to "Following" or "Requested"
-        # We re-find the element to avoid StaleElementReferenceException
+        # Check if the main button successfully changed
+        # We find element again to avoid StaleElementReference
         main_btn = driver.find_element(AppiumBy.ID, ID_FOLLOW_BUTTON)
         status_text = main_btn.text.lower()
 
@@ -161,15 +178,15 @@ def click_follow(driver):
             log("[green]Success: Status changed to Following/Requested immediately.[/green]")
             return True
         
-        # If we are here, the status didn't change, so the Popup is likely open.
+        # If we are here, the status didn't change, so a Popup is likely open.
         log("[yellow]Status didn't change. Looking for Popup button...[/yellow]")
 
-        # --- STEP 3: Find the Popup Button by Text ---
-        # We use UiSelector to find a clickable element with text "Follow"
-        # The popup is on top, so this usually grabs the popup button, not the background one.
+        # --- STEP 3: Find the Popup Button ---
+        # FIX: We use the raw string '-android uiautomator' to avoid AttributeErrors
+        # This is the universal string that Appium uses under the hood.
         popup_btn = WebDriverWait(driver, 3).until(
             EC.element_to_be_clickable((
-                AppiumBy.ANDROID_UI_AUTOMATOR, 
+                '-android uiautomator', 
                 'new UiSelector().text("Follow").clickable(true)'
             ))
         )
@@ -178,7 +195,12 @@ def click_follow(driver):
         return True
 
     except Exception as e:
-        # If we are here, maybe it wasn't a popup, but the follow just failed?
-        # Or maybe the button text is "Follow Back"?
-        log(f"[red]Popup handling failed or no popup found: {e}[/red]")
+        # --- CRITICAL FIX: Propagate Network Errors to Worker Loop ---
+        err_str = str(e)
+        critical_errors = ["Connection refused", "Connection reset", "closed connection", "InvalidSessionId", "Max retries exceeded"]
+        
+        if any(x in err_str for x in critical_errors):
+            raise e # Triggers the Auto-Heal (Restart Driver)
+            
+        log(f"[red]Follow sequence failed (Logic Error): {e}[/red]")
         return False
