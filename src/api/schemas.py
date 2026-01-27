@@ -48,6 +48,7 @@ class SessionConfig(BaseModel):
     max_delay: int
     do_vetting: bool
     continuous_mode: bool  
+    max_concurrent_sessions: int = 5
 
 class AutomationStatus(BaseModel):
     status: str  # "ON" or "OFF"
