@@ -187,7 +187,8 @@ DEFAULT_CONFIG = {
     "min_delay": 20,
     "max_delay": 45,
     "do_vetting": True,
-    "continuous_mode": True
+    "continuous_mode": True,
+    "max_concurrent_sessions": 5,
 }
 
 def get_session_config() -> Dict:

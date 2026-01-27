@@ -3,7 +3,7 @@ version: '3.8'
 services:
   manager:
     build: .
-    container_name: farm-manager
+    container_name: manager
     network_mode: host
     privileged: true
     volumes:
@@ -16,7 +16,7 @@ services:
 
   backend:
     build: .
-    container_name: farm-backend
+    container_name: backend
     ports:
       - "8000:8000"
     volumes:
