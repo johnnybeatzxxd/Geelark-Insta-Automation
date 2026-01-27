@@ -17,6 +17,8 @@ from connection import connect_to_phone
 from appium import webdriver
 from appium.options.android import UiAutomator2Options
 from appium.webdriver.appium_service import AppiumService
+from urllib3.exceptions import MaxRetryError, NewConnectionError, ProtocolError
+from selenium.common.exceptions import WebDriverException, InvalidSessionIdException
 
 # Modules
 from helper import open_page
@@ -221,123 +223,133 @@ def get_driver(device, appium_port: int, system_port: int, log=None):
         log(f"[red]Driver Init Error: {str(e)}[/red]")
         return None
 
+
 def run_automation_for_device(device: dict, automation_type: str, appium_port: int, system_port: int, payload: dict):
-    """
-    Worker: Obedient, Precise, and Stateless.
-    Payload Example for Follow: {'targets': ['user1', 'user2'], 'config': {...}}
-    Payload Example for Warmup: {'day_config': {...}}
-    """
     device_name = device.get('name', 'Unknown')
     device_id = device.get('id')
-    logger = create_device_logger(device_id,device_name)
+    logger = create_device_logger(device_id, device_name)
     
     driver = None
-    # We track which targets we actually attempted so we can 'release' the ones we missed if we crash
     targets_to_process = payload.get('targets', [])
-    processed_successfully = []
     session_completed = False
-
+    
+    # --- RESILIENCE CONFIG ---
+    MAX_HEALS = 3
+    heals_attempted = 0
+    
     try:
         logger(f"[yellow]Worker activated for {automation_type}.[/yellow]")
         
-        driver = get_driver(device, appium_port, system_port, logger)
-        if not driver:
-            logger("[red]Failed to secure driver. Releasing targets...[/red]")
-            release_reserved_targets(device_id)
-            return
+        while heals_attempted <= MAX_HEALS:
+            try:
+                # 1. Initialize Driver
+                # If we are healing, driver is None, so get_driver will spin up a fresh one
+                if driver is None:
+                    driver = get_driver(device, appium_port, system_port, logger)
+                
+                if not driver:
+                    # If get_driver fails, throw an exception to trigger the retry logic below
+                    raise WebDriverException("Failed to acquire driver")
 
-        # ----------------------------------------------------------------------
-        # TASK 1: WARMUP
-        # ----------------------------------------------------------------------
-        if automation_type == "warmup":
-            day_config = payload.get('day_config')
-            if open_page(driver, "Home", logger_func=logger):
-                perform_warmup(driver, day_config)
-            else:
-                logger("[red]Warmup failed: Home page unreachable.[/red]")
+                # 2. PERFORM TASKS
+                if automation_type == "warmup":
+                    day_config = payload.get('day_config')
+                    if open_page(driver, "Home", logger_func=logger):
+                        perform_warmup(driver, day_config)
+                        session_completed = True
+                        break 
+                    else:
+                        raise WebDriverException("Warmup Nav Failure")
 
-        # ----------------------------------------------------------------------
-        # TASK 2: FOLLOW BATCH (THE SNIPER)
-        # ----------------------------------------------------------------------
-        elif automation_type == "follow":
-            # RE-USE YOUR PERFECT WHEEL HERE
-            #
-            if open_page(driver, "Search", logger_func=logger):
-                perform_follow_session(
-                    device=device,
-                    driver=driver, 
-                    targets_list=targets_to_process, 
-                    config=payload['config'], 
-                    logger_func=logger
-                )
-        
-        # If we get here without exception, session completed successfully
-        session_completed = True
-        logger("[bold green]All assigned tasks complete.[/bold green]")
+                elif automation_type == "follow":
+                    if open_page(driver, "Search", logger_func=logger):
+                        perform_follow_session(
+                            device=device,
+                            driver=driver, 
+                            targets_list=targets_to_process, 
+                            config=payload['config'], 
+                            logger_func=logger
+                        )
+                        session_completed = True
+                        break 
+                    else:
+                        raise WebDriverException("Search Nav Failure")
+            
+            # 3. SAFE AUTO-HEAL (No ADB Killing)
+            except (MaxRetryError, NewConnectionError, ProtocolError, InvalidSessionIdException, WebDriverException) as e:
+                heals_attempted += 1
+                err_msg = str(e)
+                
+                # We assume virtually any WebDriver error during a cloud session is a connection drop
+                # that is worth retrying at least once.
+                
+                if heals_attempted <= MAX_HEALS:
+                    logger(f"[bold red]CONNECTION DROP DETECTED ({heals_attempted}/{MAX_HEALS})[/bold red]")
+                    logger(f"[yellow]Error: {err_msg[:100]}...[/yellow]")
+                    logger("[cyan]Initiating Surgical Auto-Heal...[/cyan]")
+                    
+                    # A. Kill ONLY this driver instance
+                    if driver:
+                        try: driver.quit()
+                        except: pass
+                    
+                    # Set driver to None so the loop creates a fresh one next time
+                    driver = None
+                    
+                    # B. Wait for the socket to clear naturally
+                    logger("Waiting 10s for socket to release...")
+                    time.sleep(10)
+                    
+                    logger("[green]Reconnecting to phone...[/green]")
+                    continue # Loop back to start
+                
+                else:
+                    logger(f"[bold red]Max Heals Exceeded. Aborting session.[/bold red]")
+                    raise e
 
     except Exception as e:
         session_completed = False
-        logger(f"[bold red]CRITICAL WORKER ERROR: {e}[/bold red]")
+        logger(f"[bold red]CRITICAL WORKER FAILURE: {e}[/bold red]")
     
     finally:
-            # ------------------------------------------------------------------
-            # LIFECYCLE MANAGEMENT & CLEANUP
-            # ------------------------------------------------------------------
-            
-            # 1. Extract Config (No Hardcoding)
-            config = payload.get('config', {})
-            continuous_mode = config.get('continuous_mode', False) # Default to True if missing
-            cooldown_hours = config.get('cooldown_hours')         # This comes from your DB config
+        # --- CLEANUP (Same as before) ---
+        config = payload.get('config', {})
+        continuous_mode = config.get('continuous_mode', True)
+        cooldown_hours = config.get('cooldown_hours')         
 
-            # 2. Update Account State based on Success/Failure
-            if session_completed:
-                if continuous_mode:
-                    # --- CONTINUOUS MODE (Farmer) ---
-                    # Schedule the next run by setting the hard cooldown
-                    if cooldown_hours is not None:
-                        cooldown_end = set_account_cooldown(device_id, float(cooldown_hours))
-                        logger(f"[cyan]Session Success. Continuous Mode ON. Cooldown set for {cooldown_hours}h (until {cooldown_end.strftime('%H:%M')}).[/cyan]")
-                    else:
-                        # Fallback safety only if config is corrupted
-                        logger("[red]Config Error: Cooldown hours missing. Defaulting to 1h.[/red]")
-                        set_account_cooldown(device_id, 2.0)
+        if session_completed:
+            if continuous_mode:
+                if cooldown_hours is not None:
+                    cooldown_end = set_account_cooldown(device_id, float(cooldown_hours))
+                    logger(f"[cyan]Session Success. Cooldown set for {cooldown_hours}h.[/cyan]")
                 else:
-                    # --- ONE-OFF MODE (Task Runner) ---
-                    # Disable the account so the Manager ignores it next cycle
-                    logger("[cyan]Session Success. Continuous Mode OFF. Disabling account.[/cyan]")
-                    set_account_enabled(device_id, False)
+                    logger("[red]Config Error: Cooldown missing. Defaulting to 1h.[/red]")
+                    set_account_cooldown(device_id, 1.0)
             else:
-                # --- FAILURE CASE ---
+                logger("[cyan]Session Success. One-Off Mode. Disabling account.[/cyan]")
                 set_account_enabled(device_id, False)
-                # Do NOT disable, do NOT set cooldown. Allow Manager to retry or handle it.
-                logger("[yellow]Session ended with errors/crash. No cooldown set (ready for immediate retry).[/yellow]")
+        else:
+            logger("[yellow]Session failed/incomplete. No cooldown set.[/yellow]")
 
-            # 3. Release Unprocessed Targets (Data Safety)
-            # Calculates which targets were assigned but never touched due to the stop/crash
-            remaining = [t for t in targets_to_process if t not in processed_successfully]
-            if remaining:
-                logger(f"[yellow]Releasing {len(remaining)} unprocessed targets back to pending pool.[/yellow]")
-                release_reserved_targets(device_id)
+        try:
+            # Safe Release of Targets
+            release_reserved_targets(device_id)
+        except Exception:
+            pass
 
-            # 4. Hardware Shutdown (Billing Protection)
-            logger("Shutting down driver and phone...")
-            
-            if driver:
-                try: 
-                    driver.quit()
-                except Exception: 
-                    pass
-            
-            # Always stop cloud phones to stop billing
-            if device.get("type") != "local":
-                try: 
-                    stop_phone([device_id])
-                    # Clean up UI artifact
-                    Account.update(stream_url=None).where(Account.device_id == device_id).execute()
-                except Exception as e: 
-                    logger(f"[red]Error stopping phone (Billing Risk): {e}[/red]")
-            
-            logger("[dim]Worker process terminated.[/dim]")
+        logger("Shutting down driver and phone...")
+        if driver:
+            try: driver.quit()
+            except: pass
+        
+        if device.get("type") != "local":
+            try: 
+                stop_phone([device_id])
+                Account.update(stream_url=None).where(Account.device_id == device_id).execute()
+            except Exception as e: 
+                logger(f"[red]Error stopping phone: {e}[/red]")
+        
+        logger("[dim]Worker process terminated.[/dim]")
 
 def start_appium_service_instance(host: str, port: int, system_port: int, log: Callable) -> AppiumService:
     """Starts a unique Appium server instance on a specific port."""
