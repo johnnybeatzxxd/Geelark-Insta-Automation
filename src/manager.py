@@ -20,6 +20,13 @@ device_map_lock = threading.Lock()
 # Tracks running Python processes: { "device_id": <Process Object> }
 active_processes = {} 
 
+# --- TRACKING STATE ---
+active_processes = {} 
+# NEW: Track which ports are currently assigned to which device
+# Format: { "device_id": (appium_port, system_port) }
+active_ports_registry = {}
+
+
 def log(msg, style="white"):
     """Simple timestamped logger."""
     timestamp = datetime.datetime.now().strftime("%H:%M:%S")
@@ -41,16 +48,18 @@ def kill_worker(device_id):
         # Cleanup Memory
         del active_processes[device_id]
         
+        if device_id in active_ports_registry:
+            del active_ports_registry[device_id]
         # Cleanup DB (Release Targets)
         # We find targets currently reserved by this account
         try:
-            from database import Account, Target, release_targets
+            from database import Account, Target, release_reserved_targets
             acc = Account.get(Account.device_id == device_id)
             reserved = Target.select().where((Target.status == 'reserved') & (Target.reserved_by == acc))
             users_to_free = [t.username for t in reserved]
             if users_to_free:
                 log(f"Releasing {len(users_to_free)} targets for {device_id}.", "yellow")
-                release_targets(users_to_free)
+                release_reserved_targets(device_id)
         except Exception as e:
             log(f"Error releasing targets during kill: {e}", "dim")
 
@@ -281,9 +290,32 @@ def manager_loop():
                 # NOTE: Cooldown is set by the WORKER when it completes successfully,
                 # not here at launch. This ensures true 2-hour rest after actual work.
 
-                a_port = 4723 + (len(active_processes) * 2)
-                s_port = 8200 + len(active_processes)
+                # --- NEW ROBUST PORT CALCULATOR ---
+                a_port = None
+                s_port = None
                 
+                # Get list of all currently used ports from our registry
+                used_a_ports = set(p[0] for p in active_ports_registry.values())
+                used_s_ports = set(p[1] for p in active_ports_registry.values())
+
+                # Find the first empty slot (Check 0 to 50)
+                for i in range(50):
+                    candidate_a = 4723 + (i * 2)
+                    candidate_s = 8200 + i
+                    
+                    if candidate_a not in used_a_ports and candidate_s not in used_s_ports:
+                        a_port = candidate_a
+                        s_port = candidate_s
+                        break
+                
+                if a_port is None:
+                    log("CRITICAL: No free ports available! Skipping launch.", "bold red")
+                    db.release_targets(targets) # Give targets back
+                    continue
+
+                # Register these ports immediately so the next loop iteration sees them as taken
+                active_ports_registry[acc.device_id] = (a_port, s_port)
+
                 payload = {
                     'targets': targets, 
                     'config': SESSION_CONFIG, 

@@ -205,10 +205,9 @@ def get_driver(device, appium_port: int, system_port: int, log=None):
             return
 
         # 2. Start Appium Server
-        # (Assuming you have start_appium_service_instance defined elsewhere in your file)
         appium_service = start_appium_service_instance('127.0.0.1', appium_port, system_port, log)
         server_url = f"http://127.0.0.1:{appium_port}/wd/hub"
-
+        time.sleep(2)
         # 3. Initialize Driver
         # (Assuming setup_appium_driver is defined elsewhere)
         driver = setup_appium_driver(connection_info, server_url, system_port)
@@ -218,8 +217,9 @@ def get_driver(device, appium_port: int, system_port: int, log=None):
 
         log("[green]Driver ready. Loading configuration...[/green]")
         return driver
-    except:
-        log("[red]Failed to initialize driver. Terminating.[/red]")
+    except Exception as e:
+        log(f"[red]Driver Init Error: {str(e)}[/red]")
+        return None
 
 def run_automation_for_device(device: dict, automation_type: str, appium_port: int, system_port: int, payload: dict):
     """
