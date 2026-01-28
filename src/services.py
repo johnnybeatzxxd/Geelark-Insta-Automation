@@ -506,7 +506,7 @@ def setup_appium_driver(connection_info: dict, server_url: str, system_port: int
     options.set_capability('appium:skipDeviceInitialization', True)
     options.set_capability('appium:noSign', True)
     options.set_capability('appium:ignoreHiddenApiPolicyError', True)
-    options.set_capability('appium:skipServerInstallation', True)
+    # options.set_capability('appium:skipServerInstallation', True)
     options.set_capability('appium:adbExecTimeout', 60000)
     options.app_package = "com.instagram.android"
     options.app_activity = "com.instagram.mainactivity.InstagramMainActivity"
