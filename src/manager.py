@@ -264,58 +264,96 @@ def manager_loop():
             for acc in runnable:
                 # 4. STOP if we filled the open slots this cycle
                 if launched_this_cycle >= open_slots:
-                    # We have launched enough phones to hit the limit.
-                    # The rest of the loop is skipped. They remain queued.
                     break
 
                 process_command_queue() 
 
                 if acc.device_id in active_processes: continue 
                 
-                # HARD COOLDOWN CHECK (Priority 1 - survives reboots)
-                cooldown_remaining = db.get_account_cooldown_remaining(acc.device_id)
-                if cooldown_remaining is not None:
-                    log(f"Status Check [{acc.profile_name}]:", "bold cyan")
-                    log(f"  -> HARD COOLDOWN: {cooldown_remaining} minutes remaining. Skipping.", "yellow")
-                    continue
+                # --- COMMON CHECKS ---
                 
-                stats = db.get_account_heat_stats(acc.device_id)
-
-                log(f"Status Check [{acc.profile_name}]:", "bold cyan")
-                log(f"  -> Session (2h Rolling): {stats['recent_2h']}/{SESSION_CONFIG['session_limit_2h']}", "white")
-                log(f"  -> Daily (24h Rolling): {stats['rolling_24h']}/{acc.daily_limit}", "white")
-
-                if stats['rolling_24h'] >= acc.daily_limit:
-                    log(f"  -> {acc.profile_name} hit Rolling 24h limit. Waiting for window to slide...", "yellow")
-                    continue
-
-                space_24h = acc.daily_limit - stats['rolling_24h']
-                space_2h = SESSION_CONFIG['session_limit_2h'] - stats['recent_2h']
-                
-                # Take the smallest of: batch cap, 2h remaining, 24h remaining, available targets
-                batch_size = min(SESSION_CONFIG['batch_size'], space_2h, space_24h, pending_targets)
-
-                if batch_size < SESSION_CONFIG['min_batch_start']:
-                    log(f"  -> SKIPPING: Remaining capacity ({batch_size}) is below min batch start ({SESSION_CONFIG['min_batch_start']}).", "dim")
-                    continue
-
+                # 1. Device Availability (Moved UP so both modes use it)
                 full_device_data = device_map.get(acc.device_id)
                 if not full_device_data: continue
 
-                targets = db.reserve_targets(acc.id, batch_size)
-                if targets:
-                    log(f"SUCCESS: Launching {acc.profile_name} to process {len(targets)} targets.", "bold green")
-                    pending_targets -= len(targets) # Local decrement
+                # 2. Hard Cooldown (Moved UP so both modes respect it)
+                cooldown_remaining = db.get_account_cooldown_remaining(acc.device_id)
+                if cooldown_remaining is not None:
+                    # Log optional, skipping to reduce noise
+                    continue
+                
+                # Base Payload
+                payload = {
+                    'config': SESSION_CONFIG, 
+                    'static_device_id': acc.device_id
+                }
+                
+                automation_type = None
+
+                # ==========================================================
+                # MODE A: WARMUP
+                # ==========================================================
+                if acc.task_mode == 'warmup':
+                    strategy = SESSION_CONFIG.get('warmup_strategy', {})
+                    day_key = str(acc.warmup_day)
+                    # Fallback to "1" if day config missing
+                    day_config = strategy.get(day_key, strategy.get("1"))
                     
+                    if day_config:
+                        payload['day_config'] = day_config
+                        automation_type = 'warmup'
+                        # Logging for Warmup
+                        log(f"SUCCESS: Launching {acc.profile_name} in Warmup Mode (Day {day_key}).", "bold green")
+                    else:
+                        log(f"CRITICAL: Missing Warmup Config for Day {day_key}", "red")
+                        continue
+
+                # ==========================================================
+                # MODE B: FOLLOW (Your Existing Logic)
+                # ==========================================================
+                else:
+                    # 1. Heat Stats
+                    stats = db.get_account_heat_stats(acc.device_id)
+
+                    log(f"Status Check [{acc.profile_name}]:", "bold cyan")
+                    log(f"  -> Session (2h Rolling): {stats['recent_2h']}/{SESSION_CONFIG['session_limit_2h']}", "white")
+                    log(f"  -> Daily (24h Rolling): {stats['rolling_24h']}/{acc.daily_limit}", "white")
+
+                    if stats['rolling_24h'] >= acc.daily_limit:
+                        log(f"  -> {acc.profile_name} hit Rolling 24h limit. Waiting for window to slide...", "yellow")
+                        continue
+
+                    space_24h = acc.daily_limit - stats['rolling_24h']
+                    space_2h = SESSION_CONFIG['session_limit_2h'] - stats['recent_2h']
+                    
+                    # Take the smallest of: batch cap, 2h remaining, 24h remaining, available targets
+                    batch_size = min(SESSION_CONFIG['batch_size'], space_2h, space_24h, pending_targets)
+
+                    if batch_size < SESSION_CONFIG['min_batch_start']:
+                        log(f"  -> SKIPPING: Remaining capacity ({batch_size}) is below min batch start ({SESSION_CONFIG['min_batch_start']}).", "dim")
+                        continue
+
+                    # 2. Reserve Targets
+                    targets = db.reserve_targets(acc.id, batch_size)
+                    if targets:
+                        log(f"SUCCESS: Launching {acc.profile_name} to process {len(targets)} targets.", "bold green")
+                        pending_targets -= len(targets) # Local decrement
+                        payload['targets'] = targets
+                        automation_type = 'follow'
+                    else:
+                        continue
+
+                # ==========================================================
+                # LAUNCH SEQUENCE (Unified for both modes)
+                # ==========================================================
+                if automation_type:
                     # --- ROBUST PORT CALCULATOR ---
                     a_port = None
                     s_port = None
                     
-                    # Get list of all currently used ports from our registry
                     used_a_ports = set(p[0] for p in active_ports_registry.values())
                     used_s_ports = set(p[1] for p in active_ports_registry.values())
 
-                    # Find the first empty slot (Check 0 to 50)
                     for i in range(50):
                         candidate_a = 4723 + (i * 2)
                         candidate_s = 8200 + i
@@ -327,31 +365,25 @@ def manager_loop():
                     
                     if a_port is None:
                         log("CRITICAL: No free ports available! Skipping launch.", "bold red")
-                        db.release_targets(targets) # Give targets back
+                        # If we reserved targets but failed, give them back
+                        if automation_type == 'follow':
+                            db.release_targets(payload.get('targets', []))
                         continue
 
                     # Register these ports immediately
                     active_ports_registry[acc.device_id] = (a_port, s_port)
 
-                    payload = {
-                        'targets': targets, 
-                        'config': SESSION_CONFIG, 
-                        'static_device_id': acc.device_id
-                    }
-
                     p = multiprocessing.Process(
                         target=run_automation_for_device,
-                        args=(full_device_data, 'follow', a_port, s_port, payload)
+                        args=(full_device_data, automation_type, a_port, s_port, payload)
                     )
                     p.start()
                     active_processes[acc.device_id] = p
                     launched_this_cycle += 1
                     
                     log(f"Staggering 5s...", "dim")
-                    smart_sleep_and_listen(2)
+                    smart_sleep_and_listen(2)        
         else:
-            # OPTIONAL: Log that we are full (useful for debugging, comment out to reduce noise)
-            # log(f"Queue Full: {current_running}/{max_concurrent} running. Waiting for slots...", "dim")
             pass
 
         # 8. STATUS REPORTING & STATS CACHING

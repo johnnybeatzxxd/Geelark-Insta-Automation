@@ -33,6 +33,24 @@ console = Console()
 appium_process = None
 connected_phone_id = None
 
+import signal
+import sys
+
+# Global Flag
+IS_RUNNING = True
+
+def signal_handler(signum, frame):
+    """
+    Catches the Manager's 'proc.terminate()' signal.
+    """
+    global IS_RUNNING
+    print(f"\n[bold yellow]Stop signal received (Signal {signum}). Setting IS_RUNNING=False...[/bold yellow]")
+    IS_RUNNING = False
+
+# Register the signals immediately
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
+
 def open_phones_manually():
     """
     Starts a persistent, interactive session for manually using cloud phones,
@@ -83,6 +101,7 @@ def open_phones_manually():
         rprint("[red]No valid phones were selected. Aborting.[/red]")
         return
     # --- Session Management with Guaranteed Cleanup ---
+    #
     # This list will hold the IDs of phones that were successfully started
     active_phone_ids = []
     try:
@@ -241,6 +260,11 @@ def run_automation_for_device(device: dict, automation_type: str, appium_port: i
         logger(f"[yellow]Worker activated for {automation_type}.[/yellow]")
         
         while heals_attempted <= MAX_HEALS:
+
+            # 1. CHECK RUN FLAG AT START OF LOOP
+            if not IS_RUNNING:
+                logger("[yellow]Stop signal detected. Exiting loop.[/yellow]")
+                break
             try:
                 # 1. Initialize Driver
                 # If we are healing, driver is None, so get_driver will spin up a fresh one
@@ -255,7 +279,7 @@ def run_automation_for_device(device: dict, automation_type: str, appium_port: i
                 if automation_type == "warmup":
                     day_config = payload.get('day_config')
                     if open_page(driver, "Home", logger_func=logger):
-                        perform_warmup(driver, day_config)
+                        perform_warmup(driver, day_config, logger_func=logger)
                         session_completed = True
                         break 
                     else:
@@ -277,6 +301,10 @@ def run_automation_for_device(device: dict, automation_type: str, appium_port: i
             
             # 3. SAFE AUTO-HEAL (No ADB Killing)
             except (MaxRetryError, NewConnectionError, ProtocolError, InvalidSessionIdException, WebDriverException) as e:
+                if not IS_RUNNING:
+                    logger("[red]Connection dropped due to Stop Signal. Aborting (No Heal).[/red]")
+                    break
+
                 heals_attempted += 1
                 err_msg = str(e)
                 
@@ -475,7 +503,10 @@ def setup_appium_driver(connection_info: dict, server_url: str, system_port: int
     options.udid = device_name # Explicitly set UDID
     options.automation_name = "UiAutomator2"
     options.set_capability('appium:uiautomator2ServerInstallTimeout', 900000)
+    options.set_capability('appium:skipDeviceInitialization', True)
+    options.set_capability('appium:noSign', True)
     options.set_capability('appium:ignoreHiddenApiPolicyError', True)
+    options.set_capability('appium:skipServerInstallation', True)
     options.set_capability('appium:adbExecTimeout', 60000)
     options.app_package = "com.instagram.android"
     options.app_activity = "com.instagram.mainactivity.InstagramMainActivity"

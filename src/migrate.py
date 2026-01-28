@@ -1,38 +1,55 @@
-import json
+# migrate_mode.py
 from peewee import SqliteDatabase
-from database import DB_NAME, SystemConfig
+from database import DB_NAME
 
 db = SqliteDatabase(DB_NAME)
 
-def run_migration():
-    print(f"Connecting to {DB_NAME}...")
+def migrate():
+    print("Adding task_mode to Account table...")
     db.connect()
+    try:
+        # Default to 'follow' so existing bots don't break
+        db.execute_sql("ALTER TABLE account ADD COLUMN task_mode TEXT DEFAULT 'follow'")
+        print("Success.")
+    except Exception as e:
+        print(f"Skipped: {e}")
+    db.close()
 
-    # UPDATE SESSION CONFIG JSON
+# migrate_db.py
+import json
+from database import SystemConfig, DEFAULT_WARMUP_STRATEGY
+
+def migrate_config():
+    print("Migrating Config JSON...")
     try:
         conf = SystemConfig.get_or_none(SystemConfig.key == 'session_config')
         if conf:
             current_config = json.loads(conf.value)
             
-            # Add 'max_concurrent_sessions' if missing
-            if 'max_concurrent_sessions' not in current_config:
-                current_config['max_concurrent_sessions'] = 5 # Default value
-                print("[UPDATE] Added 'max_concurrent_sessions=5' to session config.")
+            # Check if key exists
+            if 'warmup_strategy' not in current_config:
+                current_config['warmup_strategy'] = DEFAULT_WARMUP_STRATEGY
+                print("[UPDATE] Added 'warmup_strategy' to config.")
                 
-                # Update DB
                 conf.value = json.dumps(current_config)
                 conf.save()
-                print("[SUCCESS] Config JSON updated.")
             else:
-                print("[INFO] 'max_concurrent_sessions' already exists in config.")
-        else:
-            print("[INFO] No session_config found in DB. Defaults will be used automatically.")
-            
+                print("[SKIP] 'warmup_strategy' already exists.")
     except Exception as e:
-        print(f"[ERROR] updating config: {e}")
+        print(f"Error: {e}")
 
+def migrate_warmup_day():
+    print("Adding 'warmup_day' to Account table...")
+    db.connect()
+    try:
+        # Default to Day 1
+        db.execute_sql("ALTER TABLE account ADD COLUMN warmup_day INTEGER DEFAULT 1")
+        print("Success.")
+    except Exception as e:
+        print(f"Skipped: {e}")
     db.close()
-    print("Migration Complete.")
 
 if __name__ == "__main__":
-    run_migration()
+    migrate()
+    migrate_config()
+    migrate_warmup_day()

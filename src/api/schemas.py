@@ -38,17 +38,45 @@ class LogResponse(BaseModel):
     level: str
     timestamp: str
 
+# 1. Helper Models for the Warmup JSON structure
+class WarmupFeature(BaseModel):
+    enabled: bool
+    minScrolls: Optional[int] = None
+    maxScrolls: Optional[int] = None
+    minMinutes: Optional[int] = None
+    maxMinutes: Optional[int] = None
+
+class WarmupLimits(BaseModel):
+    maxLikes: int
+    maxFollows: int
+
+class WarmupChance(BaseModel):
+    follow: int
+    like: int
+    comment: int
+
+class DayConfig(BaseModel):
+    label: str
+    feed: WarmupFeature
+    reels: WarmupFeature
+    limits: WarmupLimits
+    speed: str
+    chance: WarmupChance
+
+# 2. Update the Main SessionConfig
 class SessionConfig(BaseModel):
     batch_size: int
     session_limit_2h: int
     min_batch_start: int
-    cooldown_hours: float
+    cooldown_hours: Optional[float] = 2.0
     pattern_break: int
     min_delay: int
     max_delay: int
     do_vetting: bool
-    continuous_mode: bool  
+    continuous_mode: bool = True
     max_concurrent_sessions: int = 5
+    
+    warmup_strategy: dict[str, DayConfig] 
 
 class AutomationStatus(BaseModel):
     status: str  # "ON" or "OFF"
@@ -57,6 +85,8 @@ class AutomationStatus(BaseModel):
 
 class DeviceSelection(BaseModel):
     device_ids: Optional[List[str]] = None
+    mode: str = "follow"
+    warmup_day: Optional[int] = 1
 
 class AccountResponse(BaseModel):
     device_id: str
