@@ -25,6 +25,9 @@ class Account(BaseModel):
     # INPUT: The User's Switch
     is_enabled = BooleanField(default=False) 
     
+    task_mode = CharField(default='follow')
+    warmup_day = IntegerField(default=1)
+
     # Values: 'DISABLED', 'IDLE', 'RUNNING', 'COOLDOWN', 'NO_TARGETS'
     runtime_status = CharField(default='DISABLED') 
     
@@ -178,6 +181,65 @@ def is_automation_on() -> bool:
 
 # --- DYNAMIC CONFIG ---
 
+DEFAULT_WARMUP_STRATEGY = {
+  "1": {
+    "label": "Day 1 - The Ghost",
+    "feed": { "enabled": True, "minScrolls": 13, "maxScrolls": 20 },
+    "reels": { "enabled": True, "minMinutes": 3, "maxMinutes": 6 },
+    "limits": { "maxLikes": 3, "maxFollows": 2 },
+    "speed": "slow",
+    "chance": { "follow": 30, "like": 20, "comment": 20 }
+  },
+  "2": {
+    "label": "Day 2 - The Observer",
+    "feed": { "enabled": True, "minScrolls": 18, "maxScrolls": 25 },
+    "reels": { "enabled": True, "minMinutes": 5, "maxMinutes": 8 },
+    "limits": { "maxLikes": 5, "maxFollows": 3 },
+    "speed": "slow",
+    "chance": { "follow": 20, "like": 30, "comment": 20 }
+  },
+  "3": {
+    "label": "Day 3 - Waking Up",
+    "feed": { "enabled": True, "minScrolls": 25, "maxScrolls": 30 },
+    "reels": { "enabled": True, "minMinutes": 5, "maxMinutes": 10 },
+    "limits": { "maxLikes": 10, "maxFollows": 5 },
+    "speed": "normal",
+    "chance": { "follow": 20, "like": 30, "comment": 30 }
+  },
+  "4": {
+    "label": "Day 4 - Casual User",
+    "feed": { "enabled": True, "minScrolls": 45, "maxScrolls": 50 },
+    "reels": { "enabled": True, "minMinutes": 10, "maxMinutes": 15 },
+    "limits": { "maxLikes": 15, "maxFollows": 8 },
+    "speed": "normal",
+    "chance": { "follow": 20, "like": 30, "comment": 30 }
+  },
+  "5": {
+    "label": "Day 5 - Active User",
+    "feed": { "enabled": True, "minScrolls": 45, "maxScrolls": 55 },
+    "reels": { "enabled": True, "minMinutes": 15, "maxMinutes": 20 },
+    "limits": { "maxLikes": 30, "maxFollows": 8 },
+    "speed": "normal",
+    "chance": { "follow": 20, "like": 25, "comment": 30 }
+  },
+  "6": {
+    "label": "Day 6 - The Addict",
+    "feed": { "enabled": True, "minScrolls": 50, "maxScrolls": 60 },
+    "reels": { "enabled": True, "minMinutes": 15, "maxMinutes": 26 },
+    "limits": { "maxLikes": 30, "maxFollows": 10 },
+    "speed": "fast",
+    "chance": { "follow": 20, "like": 35, "comment": 30 }
+  },
+  "7": {
+    "label": "Day 7 - Full Power",
+    "feed": { "enabled": True, "minScrolls": 55, "maxScrolls": 65 },
+    "reels": { "enabled": True, "minMinutes": 15, "maxMinutes": 25 },
+    "limits": { "maxLikes": 30, "maxFollows": 12 },
+    "speed": "fast",
+    "chance": { "follow": 40, "like": 40, "comment": 35 }
+  }
+}
+
 DEFAULT_CONFIG = {
     "batch_size": 100,
     "session_limit_2h": 5,
@@ -189,6 +251,8 @@ DEFAULT_CONFIG = {
     "do_vetting": True,
     "continuous_mode": True,
     "max_concurrent_sessions": 5,
+    # --- NEW NESTED CONFIG ---
+    "warmup_strategy": DEFAULT_WARMUP_STRATEGY 
 }
 
 def get_session_config() -> Dict:
@@ -413,6 +477,40 @@ def get_account_cooldown_remaining(device_id: str) -> Optional[int]:
         if remaining > 0:
             return int(remaining / 60)  # Return minutes
     return None
+
+def set_account_mode(device_ids: List[str], mode: str):
+    """
+    Updates the task_mode for a list of devices.
+    Also ensures they are marked as enabled.
+    """
+    valid_modes = ['follow', 'warmup']
+    if mode not in valid_modes:
+        print(f"[DB] Invalid mode '{mode}'. Defaulting to 'follow'.")
+        mode = 'follow'
+
+    with db.atomic():
+        (Account.update(task_mode=mode, is_enabled=True)
+         .where(Account.device_id.in_(device_ids))
+         .execute())
+
+def configure_and_enable_accounts(device_ids: List[str], mode: str, warmup_day: Optional[int] = None):
+    """
+    Configures task mode, warmup day, and enables the accounts in one go.
+    """
+    # 1. Base update data
+    update_data = {
+        'task_mode': mode,
+        'is_enabled': True
+    }
+    
+    # 2. Add warmup day only if provided (keeps data clean for 'follow' mode)
+    if warmup_day is not None:
+        update_data['warmup_day'] = warmup_day
+
+    # 3. Execute Bulk Update
+    (Account.update(update_data)
+     .where(Account.device_id.in_(device_ids))
+     .execute())
 
 # Initialization
 if not os.path.exists(DB_NAME):

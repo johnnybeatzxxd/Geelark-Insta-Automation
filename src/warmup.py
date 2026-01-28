@@ -274,26 +274,34 @@ def interact_with_suggestions_if_present(driver, follows_limit, current_follows)
 
 # --- MAIN CONTROLLER ---
 
-def perform_warmup(driver, config):
+def perform_warmup(driver, config, logger_func=None):
     """
     Executes warmup based on the specific Day Configuration.
     """
-    log(f"[bold green]Starting Warmup Routine: {config['label']}[/bold green]")
+    global log
+    if logger_func:
+        log = logger_func 
+
+    log(f"[bold green]Starting Warmup Routine: {config.get('label', 'Unknown Day')}[/bold green]")
     
-    # 1. Extract Configs
-    feed_conf = config['feed']
-    reels_conf = config['reels']
-    limits = config['limits']
-    chances = config['chance']
-    speed = config['speed']
+    # 1. Extract Configs (Safe extraction)
+    feed_conf = config.get('feed', {})
+    reels_conf = config.get('reels', {})
+    limits = config.get('limits', {})
+    chances = config.get('chance', {})
+    speed = config.get('speed', 'normal')
     
     stats = {"likes": 0, "follows": 0, "opened": 0}
 
     # ============================
     # PHASE 1: HOME FEED BROWSING
     # ============================
-    if feed_conf['enabled']:
-        target_scrolls = random.randint(feed_conf['min_scrolls'], feed_conf['max_scrolls'])
+    # Fix: Use .get('enabled') safely
+    if feed_conf.get('enabled', False):
+        min_s = feed_conf.get('minScrolls', 10)
+        max_s = feed_conf.get('maxScrolls', 20)
+        target_scrolls = random.randint(min_s, max_s)
+        
         log(f"[cyan]--- Phase 1: Feed ({target_scrolls} scrolls) ---[/cyan]")
         
         for i in range(target_scrolls):
@@ -307,9 +315,10 @@ def perform_warmup(driver, config):
             human_sleep(1.5, 4.0, speed)
             
             # 1. Suggestions (Horizontal)
-            interact_with_suggestions_if_present(driver, limits['max_follows'], stats['follows'])
+            limit_follows = limits.get('maxFollows', 3)
+            interact_with_suggestions_if_present(driver, limit_follows, stats['follows'])
 
-            # 2. DECISION: XML Dump (Debugging)
+            # 2. DECISION: XML Dump (Debugging - Optional)
             if chance(chances.get('xml_dump', 0)):
                 action_open_and_dump_xml(driver)
                 stats['opened'] += 1
@@ -318,14 +327,14 @@ def perform_warmup(driver, config):
 
             # 3. DECISION: Like Feed Post
             if chance(chances.get('like', 0)):
-                if stats["likes"] < limits['max_likes']:
+                if stats["likes"] < limits.get('maxLikes', 5):
                     if action_like_post(driver):
                         stats["likes"] += 1
                         human_sleep(0.5, 1.5, speed)
 
             # 4. DECISION: Follow Feed Post (Vertical List)
             if chance(chances.get('follow', 0)):
-                if stats["follows"] < limits['max_follows']:
+                if stats["follows"] < limits.get('maxFollows', 3):
                     if action_follow_from_feed(driver):
                         stats["follows"] += 1
                         human_sleep(1.0, 2.0, speed)
@@ -339,8 +348,10 @@ def perform_warmup(driver, config):
     # ============================
     # PHASE 2: REELS SESSION
     # ============================
-    if reels_conf['enabled']:
-        target_minutes = random.randint(reels_conf['min_minutes'], reels_conf['max_minutes'])
+    if reels_conf.get('enabled', False):
+        min_m = reels_conf.get('minMinutes', 5)
+        max_m = reels_conf.get('maxMinutes', 10)
+        target_minutes = random.randint(min_m, max_m)
         
         if target_minutes > 0:
             log(f"[cyan]--- Phase 2: Switching to Reels ({target_minutes} mins) ---[/cyan]")

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from .schemas import AutomationStatus, DeviceSelection, AccountResponse
-from database import set_global_automation, is_automation_on, set_account_enabled, queue_command, clear_account_cooldown
+from database import set_global_automation, is_automation_on, set_account_enabled, queue_command, clear_account_cooldown, configure_and_enable_accounts
 from urllib.parse import urlparse
 
 router = APIRouter()
@@ -48,15 +48,24 @@ def start_automation(selection: DeviceSelection):
     - If device_ids provided: Enables those specific accounts.
     - Always ensures Global Switch is ON.
     """
-    # 1. Enable specific devices if requested
-    if selection.device_ids:
-        for dev_id in selection.device_ids:
-            set_account_enabled(dev_id, True)
+    update_data = {
+        'task_mode': selection.mode, 
+        'is_enabled': True
+    }
+
+    configure_and_enable_accounts(
+        device_ids=selection.device_ids, 
+        mode=selection.mode, 
+        warmup_day=selection.warmup_day if selection.mode == 'warmup' else None
+    )
             
     # 2. Ensure global switch is ON so Manager picks them up
     set_global_automation(True)
     
-    msg = f"Enabled {len(selection.device_ids)} devices" if selection.device_ids else "Global automation enabled"
+    msg = f"Started {len(selection.device_ids) if selection.device_ids else 'all'} devices in {selection.mode} mode."
+    if selection.mode == 'warmup':
+        msg += f" (Day {selection.warmup_day})"
+        
     return {
         "status": "ON",
         "message": msg
