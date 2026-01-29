@@ -1,9 +1,5 @@
 import time
 from rich import print as rprint
-from appium.webdriver.common.appiumby import AppiumBy
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import StaleElementReferenceException
 
 # --- IDS ---
 ID_SEARCH_TAB = "com.instagram.android:id/search_tab"
@@ -11,31 +7,36 @@ ID_SEARCH_INPUT = "com.instagram.android:id/action_bar_search_edit_text"
 ID_SEARCH_RESULT_USERNAME = "com.instagram.android:id/row_search_user_username"
 ID_PROFILE_TITLE = "com.instagram.android:id/action_bar_title"
 ID_FOLLOW_BUTTON = "com.instagram.android:id/profile_header_follow_button"
-ID_TAB_BAR = "com.instagram.android:id/tab_bar" # Needed to know if we are back at base
+ID_TAB_BAR = "com.instagram.android:id/tab_bar"  # Needed to know if we are back at base
 
 log = rprint
 
+
 def open_search_page(driver):
-    """Navigates to the search tab."""
+    """Navigates to the search tab. (U2 Version)"""
     try:
         # If we are already on search page (input box visible), just return true
-        if driver.find_elements(AppiumBy.ID, ID_SEARCH_INPUT):
+        if driver(resourceId=ID_SEARCH_INPUT).exists(timeout=2):
             return True
 
-        tab = WebDriverWait(driver, 5).until(
-            EC.element_to_be_clickable((AppiumBy.ID, ID_SEARCH_TAB))
-        )
-        tab.click()
-        time.sleep(2)
-        return True
-    except:
-        log("[red]Failed to find Search Tab.[/red]")
+        # Wait for and click the search tab
+        tab = driver(resourceId=ID_SEARCH_TAB)
+        if tab.wait(timeout=5):
+            tab.click()
+            time.sleep(2)
+            return True
+        else:
+            log("[red]Failed to find Search Tab.[/red]")
+            return False
+    except Exception as e:
+        log(f"[red]Failed to open search page: {e}[/red]")
         return False
 
 
 def search_for_user(driver, username):
     """
     Types '@username' for precision, compares 'username' for matching.
+    (U2 Version)
     """
     # Clean the input username (remove @ just in case it was in the file)
     clean_username = username.strip().replace("@", "").lower()
@@ -47,160 +48,167 @@ def search_for_user(driver, username):
         search_box = None
         for attempt in range(3):
             try:
-                search_box = WebDriverWait(driver, 5).until(
-                    EC.element_to_be_clickable((AppiumBy.ID, ID_SEARCH_INPUT))
-                )
-                search_box.click()
-                time.sleep(1)
-                search_box.clear()
-                
-                # --- CHANGE 1: Send the query with @ ---
-                search_box.send_keys(search_query) 
-                
-                try: driver.execute_script('mobile: performEditorAction', {'action': 'search'})
-                except: pass
-                
-                break
-            except StaleElementReferenceException:
-                time.sleep(1)
+                search_box = driver(resourceId=ID_SEARCH_INPUT)
+                if search_box.wait(timeout=5):
+                    search_box.click()
+                    time.sleep(1)
+                    search_box.clear_text()
+                    
+                    # Send the query with @
+                    search_box.set_text(search_query)
+                    time.sleep(0.5)
+                    
+                    # Press search button on the soft keyboard (Action Search)
+                    # 'enter' often just inserts a newline or does nothing in search fields
+                    driver.press("search")
+                    
+                    # Double tap search if needed or try Enter as backup if Search fails to trigger reflow
+                    time.sleep(0.5)
+                    if not driver(resourceId=ID_SEARCH_RESULT_USERNAME).exists:
+                         driver.press("enter")
+
+                    break
+                else:
+                    time.sleep(1)
             except Exception as e:
-                log(f"[red]Error interaction with search box: {e}[/red]")
-                return False
+                if attempt == 2:
+                    log(f"[red]Error interacting with search box: {e}[/red]")
+                    return False
+                time.sleep(1)
         
         log(f"[dim]Searching for '{search_query}'...[/dim]")
         time.sleep(3.5) 
 
         # 2. INTELLIGENT MATCHING
         found_match = False
-        results = driver.find_elements(AppiumBy.ID, ID_SEARCH_RESULT_USERNAME)
+        results = driver(resourceId=ID_SEARCH_RESULT_USERNAME)
         
-        if not results:
+        if not results.exists:
             log("[yellow]No results found in list.[/yellow]")
             return False
 
-        for res in results:
+        # Iterate through results
+        for i in range(results.count):
             try:
+                res = results[i]
                 # Get text from UI (which usually won't have @)
-                res_text = res.text.strip().lower()
-                # log(f"[blue]Result: {res_text}[/blue]") # Debug log
-                
-                # --- CHANGE 2: Compare clean text vs clean target ---
-                if res_text == clean_username:
-                    log(f"[green]Found match: {res.text}[/green]")
-                    res.click()
-                    found_match = True
-                    break
-            except: continue 
+                res_text = res.get_text()
+                if res_text:
+                    res_text = res_text.strip().lower()
+                    
+                    # Compare clean text vs clean target
+                    if res_text == clean_username:
+                        log(f"[green]Found match: {res_text}[/green]")
+                        res.click()
+                        found_match = True
+                        break
+            except Exception:
+                continue 
 
         if not found_match:
             log(f"[yellow]Target '{clean_username}' not found in top results.[/yellow]")
             return False
 
         # 3. Verify Landing
+        time.sleep(2)  # Wait for profile to load
         try:
-            # Wait for title. Note: Title usually doesn't have @ either.
-            WebDriverWait(driver, 5).until(
-                EC.text_to_be_present_in_element(
-                    (AppiumBy.ID, ID_PROFILE_TITLE), clean_username
-                )
-            )
-            return True
-        except:
+            title_el = driver(resourceId=ID_PROFILE_TITLE)
+            if title_el.wait(timeout=5):
+                title_text = title_el.get_text()
+                if title_text and clean_username in title_text.lower():
+                    return True
+                else:
+                    log(f"[red]Clicked result but profile title mismatch.[/red]")
+                    return False
+            else:
+                log(f"[red]Profile title not found.[/red]")
+                return False
+        except Exception:
             log(f"[red]Clicked result but profile title mismatch.[/red]")
             return False
 
     except Exception as e:
-        # --- THIS IS THE CRITICAL FIX ---
-        # We check if the error is a Network/Driver Crash.
-        # If it is, we RAISE it. The Worker Loop will catch it and trigger Auto-Heal.
-        err_str = str(e)
-        critical_errors = ["Connection refused", "Connection reset", "closed connection", "InvalidSessionId", "Max retries exceeded"]
-        
-        if any(x in err_str for x in critical_errors):
-            # Do NOT log here, let the Auto-Heal log it.
-            raise e 
-        
-        # If it's just a logic error (element not found, etc), return False as usual
+        # Just log the error and return False to let the main loop handle it (skip user)
+        # We do NOT raise here anymore, to prevent crashing the worker loop.
         log(f"[red]Search Routine Error: {e}[/red]")
         return False
 
+
 def get_follow_status(driver):
     """
-    Checks the button on the profile.
+    Checks the button on the profile. (U2 Version)
     """
     try:
-        btn = WebDriverWait(driver, 3).until(
-            EC.presence_of_element_located((AppiumBy.ID, ID_FOLLOW_BUTTON))
-        )
-        text = btn.text.lower()
-        
-        if text == "follow" or text == "follow back":
-            return "can_follow"
-        elif "following" in text:
-            return "already_following"
-        elif "requested" in text:
-            return "requested"
-        
-        return "unknown"
-    except:
+        btn = driver(resourceId=ID_FOLLOW_BUTTON)
+        if btn.wait(timeout=3):
+            text = btn.get_text()
+            if text:
+                text = text.lower()
+                
+                if text == "follow" or text == "follow back":
+                    return "can_follow"
+                elif "following" in text:
+                    return "already_following"
+                elif "requested" in text:
+                    return "requested"
+            
+            return "unknown"
+        else:
+            return "not_found"
+    except Exception:
         return "not_found"
 
 
 def click_follow(driver):
+    """Clicks the follow button and handles popups. (U2 Version)"""
     log("[dim]Initiating Follow sequence...[/dim]")
     
     try:
         # --- STEP 1: Click the Main Profile Button ---
         try:
-            main_btn = WebDriverWait(driver, 3).until(
-                EC.element_to_be_clickable((AppiumBy.ID, ID_FOLLOW_BUTTON))
-            )
-            main_btn.click()
-            log("[blue]Clicked main profile button.[/blue]")
+            main_btn = driver(resourceId=ID_FOLLOW_BUTTON)
+            if main_btn.wait(timeout=3):
+                main_btn.click()
+                log("[blue]Clicked main profile button.[/blue]")
+            else:
+                log("[red]Could not find main follow button.[/red]")
+                return False
         except Exception as e:
-            # CHECK FOR NETWORK ERRORS (Auto-Heal Trigger)
-            err_str = str(e)
-            if any(x in err_str for x in ["Connection refused", "Connection reset", "closed connection", "InvalidSessionId"]):
-                raise e 
-            
+             # Just log and fail safely
             log(f"[red]Could not find main follow button: {e}[/red]")
             return False
 
         # --- STEP 2: Handle Potential "Review Info" Popup ---
-        time.sleep(2) # Wait for animation/popup to trigger
+        time.sleep(2)  # Wait for animation/popup to trigger
 
         # Check if the main button successfully changed
-        # We find element again to avoid StaleElementReference
-        main_btn = driver.find_element(AppiumBy.ID, ID_FOLLOW_BUTTON)
-        status_text = main_btn.text.lower()
+        main_btn = driver(resourceId=ID_FOLLOW_BUTTON)
+        # We assume if it exists we check text, if not maybe popup covers it? 
+        # But U2 finding usually works even with popup if it's in hierarchy.
+        if main_btn.exists:
+            status_text = main_btn.get_text()
+            if status_text:
+                status_text = status_text.lower()
 
-        if "following" in status_text or "requested" in status_text:
-            log("[green]Success: Status changed to Following/Requested immediately.[/green]")
-            return True
+                if "following" in status_text or "requested" in status_text:
+                    log("[green]Success: Status changed to Following/Requested immediately.[/green]")
+                    return True
         
         # If we are here, the status didn't change, so a Popup is likely open.
         log("[yellow]Status didn't change. Looking for Popup button...[/yellow]")
 
         # --- STEP 3: Find the Popup Button ---
-        # FIX: We use the raw string '-android uiautomator' to avoid AttributeErrors
-        # This is the universal string that Appium uses under the hood.
-        popup_btn = WebDriverWait(driver, 3).until(
-            EC.element_to_be_clickable((
-                '-android uiautomator', 
-                'new UiSelector().text("Follow").clickable(true)'
-            ))
-        )
-        popup_btn.click()
-        log("[green]Clicked 'Follow' inside the popup.[/green]")
-        return True
+        # U2 uses UiSelector syntax directly
+        popup_btn = driver(text="Follow", clickable=True)
+        if popup_btn.wait(timeout=3):
+            popup_btn.click()
+            log("[green]Clicked 'Follow' inside the popup.[/green]")
+            return True
+        else:
+            log("[yellow]No popup button found, assuming follow worked.[/yellow]")
+            return True
 
     except Exception as e:
-        # --- CRITICAL FIX: Propagate Network Errors to Worker Loop ---
-        err_str = str(e)
-        critical_errors = ["Connection refused", "Connection reset", "closed connection", "InvalidSessionId", "Max retries exceeded"]
-        
-        if any(x in err_str for x in critical_errors):
-            raise e # Triggers the Auto-Heal (Restart Driver)
-            
-        log(f"[red]Follow sequence failed (Logic Error): {e}[/red]")
+        # Just log the error and return False to let the main loop handle it (skip user)
+        log(f"[red]Follow sequence failed: {e}[/red]")
         return False

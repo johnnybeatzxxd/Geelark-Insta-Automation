@@ -24,7 +24,6 @@ active_processes = {}
 active_processes = {} 
 # NEW: Track which ports are currently assigned to which device
 # Format: { "device_id": (appium_port, system_port) }
-active_ports_registry = {}
 
 
 def log(msg, style="white"):
@@ -48,8 +47,6 @@ def kill_worker(device_id):
         # Cleanup Memory
         del active_processes[device_id]
         
-        if device_id in active_ports_registry:
-            del active_ports_registry[device_id]
         # Cleanup DB (Release Targets)
         # We find targets currently reserved by this account
         try:
@@ -347,35 +344,9 @@ def manager_loop():
                 # LAUNCH SEQUENCE (Unified for both modes)
                 # ==========================================================
                 if automation_type:
-                    # --- ROBUST PORT CALCULATOR ---
-                    a_port = None
-                    s_port = None
-                    
-                    used_a_ports = set(p[0] for p in active_ports_registry.values())
-                    used_s_ports = set(p[1] for p in active_ports_registry.values())
-
-                    for i in range(50):
-                        candidate_a = 4723 + (i * 2)
-                        candidate_s = 8200 + i
-                        
-                        if candidate_a not in used_a_ports and candidate_s not in used_s_ports:
-                            a_port = candidate_a
-                            s_port = candidate_s
-                            break
-                    
-                    if a_port is None:
-                        log("CRITICAL: No free ports available! Skipping launch.", "bold red")
-                        # If we reserved targets but failed, give them back
-                        if automation_type == 'follow':
-                            db.release_targets(payload.get('targets', []))
-                        continue
-
-                    # Register these ports immediately
-                    active_ports_registry[acc.device_id] = (a_port, s_port)
-
                     p = multiprocessing.Process(
                         target=run_automation_for_device,
-                        args=(full_device_data, automation_type, a_port, s_port, payload)
+                        args=(full_device_data, automation_type, payload)
                     )
                     p.start()
                     active_processes[acc.device_id] = p
