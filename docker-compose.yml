@@ -11,7 +11,7 @@ services:
       - /dev/bus/usb:/dev/bus/usb
     environment:
       - PYTHONPATH=/app
-    command: python manager.py
+    command: uv run manager.py
     restart: unless-stopped
 
   backend:
