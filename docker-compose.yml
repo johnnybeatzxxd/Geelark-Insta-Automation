@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   manager:
@@ -10,7 +10,7 @@ services:
       - ./src:/app
       - /dev/bus/usb:/dev/bus/usb
     environment:
-      - PYTHONPATH=/app
+      PYTHONPATH: /app
     command: python3 manager.py
     restart: unless-stopped
 
@@ -22,6 +22,14 @@ services:
     volumes:
       - ./src:/app
     environment:
-      - PYTHONPATH=/app
-    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+      PYTHONPATH: /app
+    command:
+      - uvicorn
+      - api.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --workers
+      - "2"
     restart: unless-stopped
