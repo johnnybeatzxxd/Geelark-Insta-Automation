@@ -237,14 +237,14 @@ def cleanup_uiautomator_on_device(serial, log=None):
 
 def get_driver(device, log=None):
     try:
-        log(f"[green]Getting the driver ready[/green]")
+        log(f"[green]Waiting the phone to start ...[/green]")
         
         # 1. Connect to Device
         if device["type"] == "local":
             connection_info = { "ip": device["id"].split(":")[0], "port": device["id"].split(":")[1] }
         else:
             connection_info = connect_to_phone(device['id'])
-
+            log(f"[green]Phone Started.[/green]")
         if not connection_info:
             log("[red]Failed to get connection info. Terminating.[/red]")
             return
