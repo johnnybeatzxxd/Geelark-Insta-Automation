@@ -312,7 +312,10 @@ def run_automation_for_device(device: dict, automation_type: str, payload: dict)
                         session_completed = True
                         break 
                     else:
-                        raise WebDriverException("Warmup Nav Failure")
+                        logger("[yellow]Navigation failed (Logic). Retrying current heal cycle...[/yellow]")
+                        heals_attempted += 1
+                        time.sleep(2)
+                        continue
 
                 elif automation_type == "follow":
                     if open_page(driver, "Search", logger_func=logger):

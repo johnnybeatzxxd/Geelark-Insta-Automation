@@ -132,5 +132,8 @@ def open_page(driver, page_name_from_ui, navigation_timeout=5, verification_time
         return driver(resourceId=target_id).click(timeout=5)
 
     except Exception as e:
+        # If it's a network error, don't return False. RAISE it!
+        err_str = str(e)
+        if any(x in err_str for x in ["Remote end", "Connection", "RPC", "closed"]):
         log(f"[red]Nav Error: {e}[/red]")
         return False
