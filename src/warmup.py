@@ -391,7 +391,7 @@ def perform_warmup(driver, config, logger_func=None):
         if target_minutes > 0:
             log(f"[cyan]--- Phase 2: Switching to Reels ({target_minutes} mins) ---[/cyan]")
             # Ensure browse_reels is also converted to U2!
-            browse_reels.browse_reels_session(driver, duration_minutes=target_minutes)
+            browse_reels.browse_reels_session(driver, duration_minutes=target_minutes,logger_func=log)
     else:
         log("[dim]Skipping Reels (Disabled in config)[/dim]")
 

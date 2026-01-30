@@ -116,12 +116,15 @@ def action_watch_reel(driver):
 
 # --- MAIN REELS CONTROLLER ---
 
-def browse_reels_session(driver, duration_minutes=5):
+def browse_reels_session(driver, duration_minutes=5, log_func=None):
     """
     Watches Reels for a specific duration.
     Args:
         driver: UiAutomator2 Device
     """
+    if log_func:
+        global log
+        log = log_func
     log(f"[bold magenta]Starting Reels Session | Duration: ~{duration_minutes} mins[/bold magenta]")
     
     # 1. Switch to Reels Tab

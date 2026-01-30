@@ -80,9 +80,9 @@ def get_current_screen_by_tab(driver, timeout=5):
 
     return "UNKNOWN_SCREEN"
 
-def open_page(driver, page_name_from_ui, navigation_timeout=10, verification_timeout=5, logger_func=rprint):
+def open_page(driver, page_name_from_ui, navigation_timeout=5, verification_timeout=3, logger_func=rprint):
     """
-    Navigates to the specified page using U2 commands.
+    Optimized U2 Navigation: Minimal hierarchy dumps for maximum speed.
     """
     global log
     log = logger_func
@@ -91,76 +91,46 @@ def open_page(driver, page_name_from_ui, navigation_timeout=10, verification_tim
     target_screen_id = f"{target_key}_SCREEN"
     
     if target_key not in TAB_ID_MAP:
-        log(f"[red]Error: '{page_name_from_ui}' is not valid.[/red]")
         return False
 
-    target_resource_id = TAB_ID_MAP[target_key]
-    max_retries = 1 
+    target_id = TAB_ID_MAP[target_key]
 
-    for attempt in range(max_retries + 1):
-        try:
-            log(f"[yellow]Attempt {attempt+1}: Opening '{target_key}'...[/yellow]")
+    try:
+        # 1. OPTIMISTIC CLICK (The Speed Secret)
+        # We don't check if we are already there. We just click. 
+        # Clicking the tab we are already on does nothing in IG, so it's safe.
+        log(f"[yellow]Navigating to {target_key}...[/yellow]")
+        
+        # We use a very short timeout. If the tab bar is visible, this is instant.
+        tab = driver(resourceId=target_id)
+        if tab.exists(timeout=1):
+            tab.click()
+        else:
+            # ONLY if the tab isn't found do we handle popups (Saves 2-3 seconds)
+            log("[dim]Tab bar not found, clearing popups...[/dim]")
+            handle_common_popups(driver)
+            tab.click(timeout=3)
 
-            # 1. Ensure App is Running (Fast in U2)
-            current_app = driver.app_current()
-            if current_app['package'] != APP_PACKAGE:
-                driver.app_start(APP_PACKAGE)
-                driver.app_wait(APP_PACKAGE, timeout=10)
+        # 2. FAST VERIFICATION
+        # Instead of a complex loop, we check for a "Success Signal"
+        # For Search, it's the search box. For Home, it's the logo, etc.
+        
+        # We check the specific 'selected' state for the target tab only
+        if driver(resourceId=target_id, selected=True).wait(timeout=verification_timeout):
+            log(f"[green]Successfully on {target_key}.[/green]")
+            return True
+            
+        # 3. FALLBACK VERIFICATION (If 'selected' state is laggy)
+        if get_current_screen_by_tab(driver, timeout=1) == target_screen_id:
+            return True
 
-            # 2. Check if already there
-            if get_current_screen_by_tab(driver, timeout=2) == target_screen_id:
-                log(f"[green]Already on '{target_key}' page.[/green]")
-                return True
-            
-            # 3. Handle Popups
-            if not is_nav_bar_present(driver, timeout=2):
-                log("[yellow]Nav bar blocked. Checking popups...[/yellow]")
-                handle_common_popups(driver)
+        # 4. LAST RESORT: RECOVERY
+        log(f"[red]Failed to verify {target_key}. Restarting app...[/red]")
+        driver.app_stop(APP_PACKAGE)
+        driver.app_start(APP_PACKAGE)
+        # Recursive call for one retry
+        return driver(resourceId=target_id).click(timeout=5)
 
-            # 4. Click the Tab
-            log(f"[yellow]Clicking '{target_key}' tab...[/yellow]")
-            
-            # U2 Click with wait
-            if not driver(resourceId=target_resource_id).exists(timeout=navigation_timeout):
-                # If tab not found, try clearing popups again
-                handle_common_popups(driver)
-                
-            driver(resourceId=target_resource_id).click(timeout=navigation_timeout)
-
-            # 5. VERIFICATION STAGE
-            verified = False
-            start_verify = time.time()
-            while time.time() - start_verify < verification_timeout:
-                if get_current_screen_by_tab(driver, timeout=0.5) == target_screen_id:
-                    verified = True
-                    break
-                time.sleep(0.5)
-            
-            if verified:
-                log(f"[green]Successfully navigated to '{target_key}'.[/green]")
-                return True
-            
-            # Intervention Logic
-            log(f"[red]Verification failed. Checking popups...[/red]")
-            if handle_common_popups(driver):
-                time.sleep(1)
-                # Check again
-                if get_current_screen_by_tab(driver, timeout=2) == target_screen_id:
-                    log(f"[green]Recovered![/green]")
-                    return True
-            
-            raise Exception("Navigation Verification Failed")
-
-        except Exception as e:
-            log(f"[red]Attempt {attempt+1} failed: {e}[/red]")
-            
-            if attempt < max_retries:
-                log(f"[bold red]!!! RESTARTING INSTAGRAM !!![/bold red]")
-                driver.app_stop(APP_PACKAGE)
-                time.sleep(1)
-                driver.app_start(APP_PACKAGE)
-            else:
-                log(f"[bold red]All attempts to open '{target_key}' failed.[/bold red]")
-                return False
-                
-    return False
+    except Exception as e:
+        log(f"[red]Nav Error: {e}[/red]")
+        return False

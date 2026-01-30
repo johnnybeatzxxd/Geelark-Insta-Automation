@@ -56,17 +56,10 @@ def search_for_user(driver, username):
                     
                     # Send the query with @
                     search_box.set_text(search_query)
-                    time.sleep(0.5)
                     
-                    # Press search button on the soft keyboard (Action Search)
-                    # 'enter' often just inserts a newline or does nothing in search fields
+                    # Execute Search Action (equivalent to mobile: performEditorAction {'action': 'search'})
                     driver.press("search")
                     
-                    # Double tap search if needed or try Enter as backup if Search fails to trigger reflow
-                    time.sleep(0.5)
-                    if not driver(resourceId=ID_SEARCH_RESULT_USERNAME).exists:
-                         driver.press("enter")
-
                     break
                 else:
                     time.sleep(1)
