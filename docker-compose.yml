@@ -1,35 +1,28 @@
-version: "3.8"
+version: '3.8'
 
 services:
   manager:
     build: .
     container_name: manager
-    network_mode: host
-    privileged: true
+    entrypoint: [] 
     volumes:
       - ./src:/app
-      - /dev/bus/usb:/dev/bus/usb
     environment:
-      PYTHONPATH: /app
-    command: python3 manager.py
+      - PYTHONPATH=/app
+    command: ["python3", "manager.py"]
     restart: unless-stopped
+    depends_on:
+      - backend
 
   backend:
     build: .
     container_name: backend
+    entrypoint: []
     ports:
       - "80:8000"
     volumes:
       - ./src:/app
     environment:
-      PYTHONPATH: /app
-    command:
-      - uvicorn
-      - api.main:app
-      - --host
-      - 0.0.0.0
-      - --port
-      - "8000"
-      - --workers
-      - "2"
+      - PYTHONPATH=/app
+    command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
     restart: unless-stopped
