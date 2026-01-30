@@ -215,6 +215,26 @@ def create_device_logger(device_id,device_name: str):
             
     return device_specific_log
 
+def cleanup_uiautomator_on_device(serial, log=None):
+    """
+    Kills orphaned uiautomator processes on the device to prevent
+    'UiAutomationService already registered' errors.
+    """
+    logger = log or rprint
+    try:
+        logger(f"[dim]Cleaning up uiautomator on {serial}...[/dim]")
+        # Command to kill various forms of uiautomator services
+        # 1. Kill the uiautomator binary if running
+        subprocess.run(["adb", "-s", serial, "shell", "pkill", "uiautomator"], capture_output=True)
+        # 2. Kill the u2 stub if legacy/orphaned
+        subprocess.run(["adb", "-s", serial, "shell", "pkill", "-f", "com.github.uiautomator"], capture_output=True)
+        # 3. Kill the wetest/uia2 server specifically (found in user logs)
+        subprocess.run(["adb", "-s", serial, "shell", "pkill", "-f", "com.wetest.uia2"], capture_output=True)
+        
+        time.sleep(1.5) # Give the system a moment to release the service
+    except Exception as e:
+        logger(f"[dim]Cleanup notice: {e}[/dim]")
+
 def get_driver(device, log=None):
     try:
         log(f"[green]Getting the driver ready[/green]")
@@ -230,6 +250,10 @@ def get_driver(device, log=None):
             return
 
         serial = f"{connection_info['ip']}:{connection_info['port']}"
+        
+        # --- FIX: Cleanup before connection ---
+        cleanup_uiautomator_on_device(serial, log)
+        
         log(f"[yellow]Connecting to {serial}...[/yellow]")
         d = u2.connect(serial)
 
