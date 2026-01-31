@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 
 router = APIRouter()
 
+ws_router = APIRouter() 
 # --- AUTOMATION ENDPOINTS ---
 
 @router.get("/automation/status", response_model=AutomationStatus)
@@ -242,7 +243,7 @@ def get_logs(limit: int = 100, device_id: Optional[str] = None):
         ) for l in query
     ]
 
-@router.websocket("/logs/ws/{device_id}")
+@ws_router.websocket("/logs/ws/{device_id}")
 async def websocket_endpoint(websocket: WebSocket, device_id: str):
     """
     Real-time log streamer. 

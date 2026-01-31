@@ -49,6 +49,7 @@ def generate_token(request: TokenRequest):
 # We add `dependencies=[Depends(verify_token)]`
 # This effectively locks EVERY endpoint in router.py
 app.include_router(router, dependencies=[Depends(verify_token)])
+app.include_router(ws_router)
 
 @app.get("/")
 def root():
