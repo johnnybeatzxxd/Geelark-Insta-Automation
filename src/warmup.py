@@ -366,7 +366,7 @@ def perform_warmup(driver, config, logger_func=None, state=None):
             if speed == "fast":
                 # 70% chance to flick fast
                 current_action_speed = "fast" if chance(70) else "normal"
-            elif speed == "slow":
+            else:
                 # 70% chance to drag slow
                 current_action_speed = "slow" if chance(70) else "normal"
 
