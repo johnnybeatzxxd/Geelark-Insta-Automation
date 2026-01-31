@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from .routes import router
+from .routes import router, ws_router
 from .auth import create_access_token, verify_token
 from dotenv import load_dotenv
 import os
