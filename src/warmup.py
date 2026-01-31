@@ -299,7 +299,7 @@ def interact_with_suggestions_if_present(driver, follows_limit, current_follows)
 
 # --- MAIN CONTROLLER ---
 
-def perform_warmup(driver, config, logger_func=None):
+def perform_warmup(driver, config, logger_func=None, state=None):
     """
     Executes warmup based on the specific Day Configuration.
     Args:
@@ -308,6 +308,10 @@ def perform_warmup(driver, config, logger_func=None):
     global log
     if logger_func:
         log = logger_func 
+
+    if state is None:
+        state = {"phase": "feed", "current_scroll": 0, "target_scrolls": None}
+
 
     log(f"[bold green]Starting Warmup Routine: {config.get('label', 'Unknown Day')}[/bold green]")
     
@@ -330,7 +334,7 @@ def perform_warmup(driver, config, logger_func=None):
         
         log(f"[cyan]--- Phase 1: Feed ({target_scrolls} scrolls) ---[/cyan]")
         
-        for i in range(target_scrolls):
+        for i in range(state["current_scroll"], target_scrolls):
             log(f"[dim]Feed Post {i+1}/{target_scrolls}[/dim]")
             
             # Safety Check
@@ -344,18 +348,8 @@ def perform_warmup(driver, config, logger_func=None):
             limit_follows = limits.get('maxFollows', 3)
             interact_with_suggestions_if_present(driver, limit_follows, stats['follows'])
 
-            if speed == "fast":
-                # 70% chance to flick fast
-                current_action_speed = "fast" if chance(70) else "normal"
-            elif speed == "slow":
-                # 70% chance to drag slow
-                current_action_speed = "slow" if chance(70) else "normal"
-        
-            perform_scroll(driver, direction="down",speed=current_action_speed)
-            continue
-
             # 3. DECISION: Like Feed Post
-            if chance(chances.get('like', 0)):
+            if chance(chances.get('like', 1)):
                 if stats["likes"] < limits.get('maxLikes', 5):
                     if action_like_post(driver):
                         stats["likes"] += 1
@@ -375,23 +369,27 @@ def perform_warmup(driver, config, logger_func=None):
             elif speed == "slow":
                 # 70% chance to drag slow
                 current_action_speed = "slow" if chance(70) else "normal"
-            perform_scroll(driver, direction="down")
-            
+
+            perform_scroll(driver, direction="down", speed=current_action_speed)
+            state["current_scroll"] = i + 1
+
+        state["phase"] = "reels" 
     else:
         log("[dim]Skipping Feed (Disabled in config)[/dim]")
 
     # ============================
     # PHASE 2: REELS SESSION
     # ============================
-    if reels_conf.get('enabled', False):
+    if reels_conf.get('enabled', False) and state["phase"] == "reels":
         min_m = reels_conf.get('minMinutes', 5)
         max_m = reels_conf.get('maxMinutes', 10)
         target_minutes = random.randint(min_m, max_m)
         
         if target_minutes > 0:
             log(f"[cyan]--- Phase 2: Switching to Reels ({target_minutes} mins) ---[/cyan]")
-            # Ensure browse_reels is also converted to U2!
+            # browse_reels is also converted to U2!
             browse_reels.browse_reels_session(driver, duration_minutes=target_minutes,log_func=log)
+            state["phase"] = "complete"
     else:
         log("[dim]Skipping Reels (Disabled in config)[/dim]")
 

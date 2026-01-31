@@ -128,7 +128,7 @@ def vet_profile_content(driver):
         log(f"[red]Vetting Error: {e}[/red]")
         driver.press("back") # Emergency exit
 
-def perform_follow_session(device, driver, targets_list, config, logger_func):
+def perform_follow_session(device, driver, targets_list, config, logger_func, state=None):
     """
     U2 Version of Follow Session.
     Note: 'device' arg removed/merged into logic if not needed, 
@@ -136,7 +136,8 @@ def perform_follow_session(device, driver, targets_list, config, logger_func):
     """
     global log
     log = logger_func 
-    
+    if state is None:
+        state = {"current_index": 0, "successful_follows": 0}
     # We need device_id for logging. 
     device_id = device.get('id')
     if not targets_list:
@@ -146,7 +147,7 @@ def perform_follow_session(device, driver, targets_list, config, logger_func):
     log(f"[bold green]Starting Follow Session. Targets: {len(targets_list)}[/bold green]")
     successful_follows = 0
     
-    for i, username in enumerate(targets_list):
+    for i in range(state["current_index"], len(targets_list)):
         try:
             log(f"\n[cyan]--- Processing {i+1}/{len(targets_list)}: {username} ---[/cyan]")
 
@@ -170,6 +171,7 @@ def perform_follow_session(device, driver, targets_list, config, logger_func):
             if not search_for_user(driver, username):
                 log(f"[red]Could not find user {username}. Marking failed.[/red]")
                 log_action(device_id, username, "failed") 
+                state["current_index"] = i + 1
                 continue
 
             # C. Vetting
@@ -201,6 +203,7 @@ def perform_follow_session(device, driver, targets_list, config, logger_func):
                 if click_follow(driver):
                     log_action(device_id, username, "success")
                     successful_follows += 1
+                    state["successful_follows"] += 1
                     delay = random.uniform(config['min_delay'], config['max_delay'])
                     log(f"[dim]Sleeping for {delay:.1f}s...[/dim]")
                     time.sleep(delay)
@@ -215,6 +218,7 @@ def perform_follow_session(device, driver, targets_list, config, logger_func):
                 log(f"[yellow]Status '{status}'. Skipping.[/yellow]")
                 log_action(device_id, username, "ignored")
 
+            state["current_index"] = i + 1
         except Exception as e:
             log(f"[bold red]CRITICAL ERROR processing user {username}: {e}[bold red]")
             log("[red]Attempting to recover and continue to next user...[/red]")
