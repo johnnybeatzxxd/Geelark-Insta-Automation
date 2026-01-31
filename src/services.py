@@ -281,6 +281,18 @@ def run_automation_for_device(device: dict, automation_type: str, payload: dict)
     # --- RESILIENCE CONFIG ---
     MAX_HEALS = 3
     heals_attempted = 0
+
+    warmup_session_state = {
+        "phase": "feed",       # 'feed' or 'reels'
+        "current_scroll": 0,   # How many scrolls done so far
+        "target_scrolls": None # Set once and kept
+    }
+
+    follow_session_state = {
+        "current_index": 0,      # Which username in the list are we on?
+        "successful_follows": 0, # Total successes for this session
+        "phase": "follow"        # Helpful for debugging
+    }
     
     try:
         logger(f"[yellow]Worker activated for {automation_type}.[/yellow]")
@@ -308,7 +320,7 @@ def run_automation_for_device(device: dict, automation_type: str, payload: dict)
                 if automation_type == "warmup":
                     day_config = payload.get('day_config')
                     if open_page(driver, "Home", logger_func=logger):
-                        perform_warmup(driver, day_config, logger_func=logger)
+                        perform_warmup(driver, day_config, logger_func=logger, state=warmup_session_state)
                         session_completed = True
                         break 
                     else:
@@ -324,7 +336,8 @@ def run_automation_for_device(device: dict, automation_type: str, payload: dict)
                             driver=driver, 
                             targets_list=targets_to_process, 
                             config=payload['config'], 
-                            logger_func=logger
+                            logger_func=logger,
+                            state=follow_session_state,
                         )
                         session_completed = True
                         break 
