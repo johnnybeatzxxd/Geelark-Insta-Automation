@@ -148,6 +148,7 @@ def perform_follow_session(device, driver, targets_list, config, logger_func, st
     successful_follows = 0
     
     for i in range(state["current_index"], len(targets_list)):
+        username = targets_list[i] 
         try:
             log(f"\n[cyan]--- Processing {i+1}/{len(targets_list)}: {username} ---[/cyan]")
 
