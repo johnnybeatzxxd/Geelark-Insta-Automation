@@ -6,3 +6,5 @@ rich
 python-dotenv
 Appium-Python-Client
 uiautomator2
+python-jose[cryptography] 
+python-multipart
