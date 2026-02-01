@@ -1,19 +1,24 @@
 version: '3.8'
 
 services:
-  manager:
-    build: .
-    container_name: manager
-    entrypoint: [] 
-    volumes:
-      - ./src:/app
+  # 1. The New Database Container
+  db:
+    image: postgres:15-alpine
+    container_name: db
+    restart: always
     environment:
-      - PYTHONPATH=/app
-    command: ["python3", "manager.py"]
-    restart: unless-stopped
-    depends_on:
-      - backend
+      POSTGRES_USER: farm_user
+      POSTGRES_PASSWORD: farm_password_123
+      POSTGRES_DB: instagram_farm
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U farm_user -d instagram_farm"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
+  # 2. Your Backend (Updated for Postgres)
   backend:
     build: .
     container_name: backend
@@ -22,7 +27,58 @@ services:
       - "80:8000"
     volumes:
       - ./src:/app
+    depends_on:
+      db:
+        condition: service_healthy
     environment:
       - PYTHONPATH=/app
+      - DB_HOST=db
+      - DB_USER=farm_user
+      - DB_PASS=farm_password_123
+      - DB_NAME=instagram_farm
+      # Keep your existing secrets here
+      - geelark_app_id=${geelark_app_id}
+      - geelark_api_key=${geelark_api_key}
+      - SECRET_KEY=${SECRET_KEY}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
     command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
     restart: unless-stopped
+
+  # 3. Your Manager (Updated for Postgres)
+  manager:
+    build: .
+    container_name: manager
+    entrypoint: [] 
+    volumes:
+      - ./src:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    environment:
+      - PYTHONPATH=/app
+      - DB_HOST=db
+      - DB_USER=farm_user
+      - DB_PASS=farm_password_123
+      - DB_NAME=instagram_farm
+      # Keep your existing secrets here
+      - geelark_app_id=${geelark_app_id}
+      - geelark_api_key=${geelark_api_key}
+    command: ["python3", "manager.py"]
+    restart: unless-stopped
+
+  pgadmin:
+      image: dpage/pgadmin4
+      container_name: pgadmin
+      restart: always
+      environment:
+        PGADMIN_DEFAULT_EMAIL: admin@farm.com
+        PGADMIN_DEFAULT_PASSWORD: farm_admin_123
+      ports:
+        - "127.0.0.1:5050:80"
+      depends_on:
+        - db
+# This ensures your data isn't deleted if the container stops
+volumes:
+  postgres_data:

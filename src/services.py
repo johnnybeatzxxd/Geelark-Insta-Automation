@@ -354,7 +354,7 @@ def run_automation_for_device(device: dict, automation_type: str, payload: dict)
                 err_msg = str(e)
                 
                 # Check for disconnect signals
-                is_disconnect = any(x in err_msg for x in ["Connection refused", "Connection reset", "RPC", "HTTPConnectionPool"])
+                is_disconnect = any(x in err_msg for x in ["Connection refused", "Connection reset", "RPC", "HTTPConnectionPool", "connection"])
                 
                 if is_disconnect or isinstance(e, RequestsConnectionError):
                     heals_attempted += 1

@@ -1,12 +1,23 @@
 import datetime
 import os
+import time
 from typing import List, Dict, Optional
 from peewee import *
 
-# --- DATABASE SETUP ---
-DB_NAME = 'instagram_farm.db'
-# We use WAL mode to allow the Manager and multiple Workers to write to the DB at the same time safely.
-db = SqliteDatabase(DB_NAME, pragmas={'journal_mode': 'wal', 'foreign_keys': 1})
+# --- CONNECTION LOGIC ---
+DB_NAME = os.getenv('DB_NAME', 'instagram_farm')
+DB_USER = os.getenv('DB_USER', 'farm_user')
+DB_PASS = os.getenv('DB_PASS', 'farm_password_123')
+DB_HOST = os.getenv('DB_HOST', 'localhost')
+
+db = None
+
+if os.getenv('DB_HOST'):
+    # POSTGRES MODE (Docker)
+    db = PostgresqlDatabase(None) # Defer initialization
+else:
+    # SQLITE MODE (Local Testing)
+    db = SqliteDatabase('instagram_farm.db', pragmas={'journal_mode': 'wal'})
 
 class BaseModel(Model):
     class Meta:
@@ -88,11 +99,32 @@ class DeviceLog(BaseModel):
 
 # --- INITIALIZATION ---
 def initialize_db():
-    """Creates tables and ensures global keys exist."""
-    db.connect(reuse_if_open=True)
-    db.create_tables([SystemConfig, Account, Target, Action, SystemCommand, DeviceLog])
+    """Attempts to connect to the DB with retries."""
+    if os.getenv('DB_HOST'):
+        # Retry loop for Postgres startup
+        for i in range(10):
+            try:
+                print(f"[DB] Attempting connection to Postgres at {DB_HOST} ({i+1}/10)...")
+                db.init(
+                    DB_NAME,
+                    user=DB_USER,
+                    password=DB_PASS,
+                    host=DB_HOST,
+                    port=5432
+                )
+                db.connect()
+                print("[DB] Connection Successful!")
+                break
+            except Exception as e:
+                print(f"[DB] Connection failed: {e}")
+                time.sleep(2)
+    else:
+        db.connect(reuse_if_open=True)
+
+    # Create Tables
+    db.create_tables([SystemConfig, Account, Target, Action, SystemCommand, DeviceLog], safe=True)
     
-    # Initialize the Master Switch if it doesn't exist
+    # Initialize Defaults
     SystemConfig.get_or_create(key='global_automation_status', defaults={'value': 'OFF'})
 
 
