@@ -32,7 +32,7 @@ class Account(MigrationModel):
     daily_limit = IntegerField(default=100)
     created_at = DateTimeField(default=datetime.datetime.now)
     cooldown_until = DateTimeField(null=True)
-    stream_url = CharField(null=True)
+    stream_url = TextField(null=True)
     task_mode = CharField(default='follow')
     warmup_day = IntegerField(default=1)
     cached_2h_count = IntegerField(default=0)
@@ -78,7 +78,7 @@ def run_migration():
         return
 
     # Tables to migrate in order
-    tables = [SystemConfig, Account, Target, Action, SystemCommand, DeviceLog]
+    tables = [SystemConfig, Account, Target, Action, SystemCommand]
     
     # 1. READ ALL DATA FROM SQLITE
     data_map = {}
@@ -134,8 +134,6 @@ def run_migration():
                     model.insert_many(chunk).on_conflict_ignore().execute()
                 elif model == Target:
                     model.insert_many(chunk).on_conflict_ignore().execute()
-                else:
-                    model.insert_many(chunk).execute()
 
     print("--- FULL MIGRATION COMPLETE ---")
     sqlite_db.close()

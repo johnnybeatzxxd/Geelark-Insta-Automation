@@ -26,7 +26,7 @@ class BaseModel(Model):
 # --- 1. SYSTEM CONFIG (Global Control) ---
 class SystemConfig(BaseModel):
     key = CharField(unique=True)   # e.g., 'global_automation_status'
-    value = CharField()            # 'ON' or 'OFF'
+    value = TextField()
 
 # --- 2. ACCOUNTS (The Workers) ---
 class Account(BaseModel):
@@ -50,7 +50,7 @@ class Account(BaseModel):
     cooldown_until = DateTimeField(null=True)
     
     # Stream URL for remote viewing
-    stream_url = CharField(null=True)
+    stream_url = TextField(null=True)
 
     cached_2h_count = IntegerField(default=0)
     cached_24h_count = IntegerField(default=0)
