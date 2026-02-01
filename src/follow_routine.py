@@ -136,6 +136,7 @@ def perform_follow_session(device, driver, targets_list, config, logger_func, st
     """
     global log
     log = logger_func 
+
     if state is None:
         state = {"current_index": 0, "successful_follows": 0}
     # We need device_id for logging. 

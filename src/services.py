@@ -235,7 +235,7 @@ def cleanup_uiautomator_on_device(serial, log=None):
     except Exception as e:
         logger(f"[dim]Cleanup notice: {e}[/dim]")
 
-def get_driver(device, log=None):
+def get_driver(device, log=None, launch_phone=True):
     try:
         log(f"[green]Waiting the phone to start ...[/green]")
         
@@ -243,7 +243,7 @@ def get_driver(device, log=None):
         if device["type"] == "local":
             connection_info = { "ip": device["id"].split(":")[0], "port": device["id"].split(":")[1] }
         else:
-            connection_info = connect_to_phone(device['id'])
+            connection_info = connect_to_phone(device['id'],launch_phone=launch_phone)
             log(f"[green]Phone Started.[/green]")
         if not connection_info:
             log("[red]Failed to get connection info. Terminating.[/red]")
@@ -296,6 +296,7 @@ def run_automation_for_device(device: dict, automation_type: str, payload: dict)
     
     try:
         logger(f"[yellow]Worker activated for {automation_type}.[/yellow]")
+        launch_phone = True
         
         while heals_attempted <= MAX_HEALS:
 
@@ -307,7 +308,7 @@ def run_automation_for_device(device: dict, automation_type: str, payload: dict)
                 # 1. Initialize Driver
                 # If we are healing, driver is None, so get_driver will spin up a fresh one
                 if driver is None:
-                    driver = get_driver(device, logger)
+                    driver = get_driver(device, logger, launch_phone=launch_phone)
                 
                 if not driver:
                     # If get_driver fails, throw an exception to trigger the retry logic below
@@ -335,7 +336,7 @@ def run_automation_for_device(device: dict, automation_type: str, payload: dict)
                             device=device,
                             driver=driver, 
                             targets_list=targets_to_process, 
-                            config=payload['config'], 
+                            config=payload['config'],
                             logger_func=logger,
                             state=follow_session_state,
                         )
@@ -363,7 +364,7 @@ def run_automation_for_device(device: dict, automation_type: str, payload: dict)
                         
                         # No need to "quit" U2 driver, just null it
                         driver = None
-                        
+                        launch_phone = False
                         logger("Waiting 5s for socket to release...")
                         time.sleep(5)
                         logger("[green]Reconnecting...[/green]")

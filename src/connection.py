@@ -3,94 +3,121 @@ import subprocess
 from geelark_api import start_phone, get_phone_status, get_adb_information
 from rich import print as rprint
 
-def make_phone_ready(phone_id: str) -> dict:
+def make_phone_ready(phone_id: str, launch_phone: bool = True) -> dict:
     """
-    Makes a phone ready for use by starting it and waiting for it to be fully started.
-    Then retrieves and returns the ADB connection information.
+    Makes a phone ready for use.
+    - If launch_phone=True: Sends start command, updates DB stream URL, waits for boot.
+    - If launch_phone=False: Checks status. If running, grabs ADB info immediately.
     
     Args:
-        phone_id (str): The ID of the phone to start
+        phone_id (str): The ID of the phone
+        launch_phone (bool): Whether to send the start API command.
         
     Returns:
-        dict: ADB connection information for the phone, or empty dict if failed
-        
-    Example return format:
-    {
-        "ip": str,        # Connection IP
-        "port": str,      # Connection port
-        "pwd": str        # Connection password
-    }
+        dict: ADB connection info or {} if failed.
     """
-    # Start the phone
-    start_response = start_phone([phone_id])
-    print(f"Start Command Sent to: {phone_id}")
-    if not start_response:
-        rprint(f"[red]Failed to start phone {phone_id}[/red]")
-        return {}
     
-    # Extract URL and save to DB
-    try:
-        # start_response is a list of dicts based on geelark_api.py:388
-        # But wait, start_phone in geelark_api.py returns success_details list directly if code==0
-        # Let's verify geelark_api.py again.
-        # Yes: return success_details
-        if isinstance(start_response, list) and len(start_response) > 0:
-            url = start_response[0].get("url")
-            if url:
-                from database import Account
-                Account.update(stream_url=url).where(Account.device_id == phone_id).execute()
-                rprint(f"[green]Stream URL saved for {phone_id}[/green]")
-    except Exception as e:
-        rprint(f"[red]Failed to save stream URL: {e}[/red]")
+    # --- PHASE 1: START OR CHECK ---
+    if launch_phone:
+        # A. Force Start
+        start_response = start_phone([phone_id])
+        rprint(f"Start Command Sent to: {phone_id}")
+        
+        if not start_response:
+            rprint(f"[red]Failed to start phone {phone_id}[/red]")
+            return {}
+        
+        # Save Stream URL to DB
+        try:
+            if isinstance(start_response, list) and len(start_response) > 0:
+                url = start_response[0].get("url")
+                if url:
+                    from database import Account
+                    Account.update(stream_url=url).where(Account.device_id == phone_id).execute()
+                    rprint(f"[green]Stream URL saved for {phone_id}[/green]")
+        except Exception as e:
+            rprint(f"[red]Failed to save stream URL: {e}[/red]")
+            
+        rprint(f"[yellow]Starting phone {phone_id}...[/yellow]")
     
-    rprint(f"[yellow]Starting phone {phone_id}...[/yellow]")
+    else:
+        # B. Check Status Only (Auto-Heal Mode)
+        rprint(f"[dim]Checking status for {phone_id} (No Launch)...[/dim]")
+        try:
+            status_info = get_phone_status([phone_id])
+            success_details = status_info.get("successDetails", [])
+            
+            if not success_details:
+                rprint("[red]Could not verify phone status.[/red]")
+                return {}
+            
+            status_code = success_details[0]["status"]
+            
+            if status_code == 2: # Shut down
+                rprint(f"[red]Phone {phone_id} is OFF and launch_phone=False. Aborting.[/red]")
+                return {}
+            elif status_code == 3: # Expired
+                rprint(f"[red]Phone {phone_id} is EXPIRED.[/red]")
+                return {}
+            elif status_code == 0: # Started
+                rprint(f"[green]Phone {phone_id} is already running.[/green]")
+                # We can grab existing stream url from DB just for logging/verification if needed
+                # but no API call needed here.
+        except Exception as e:
+            rprint(f"[red]Status check failed: {e}[/red]")
+            return {}
+
+    # --- PHASE 2: WAIT FOR BOOT (Common) ---
+    # We loop until status is 0 (Started). 
+    # If launch_phone=False and it was already 0, this loop breaks instantly.
     
-    rprint("[yellow]Waiting for phone to start...[/yellow]")
-    # Wait for phone to be fully started
-    while True:
-        time.sleep(15)
+    rprint("[yellow]Waiting for phone availability...[/yellow]")
+    
+    max_wait_cycles = 20 # 5 minutes max
+    cycle = 0
+    
+    while cycle < max_wait_cycles:
+        # If we just checked status above and it was 0, we can optimize, 
+        # but calling API again is safer to ensure it didn't crash in the last second.
         status_info = get_phone_status([phone_id])
-        
-        # Check if we got any successful status information
         success_details = status_info.get("successDetails", [])
-        if not success_details:
-            rprint("[red]Failed to get phone status[/red]")
-            return {}
-            
-        phone_status = success_details[0]
         
-        # Status codes: 0=Started, 1=Starting, 2=Shut down, 3=Expired
-        if phone_status["status"] == 0:  # Phone is started
-            rprint(f"[green]Phone {phone_id} is now started[/green]")
-            break
-        elif phone_status["status"] in [2, 3]:  # Phone is shut down or expired
-            rprint(f"[red]Phone {phone_id} is not available (status: {phone_status['status']})[/red]")
-            return {}
+        if success_details:
+            phone_status = success_details[0]
+            code = phone_status["status"]
             
+            if code == 0:  # Started
+                # rprint(f"[green]Phone {phone_id} is active.[/green]")
+                break
+            elif code in [2, 3]: # Shut down / Expired
+                rprint(f"[red]Phone died during boot (status: {code}).[/red]")
+                return {}
+        
+        time.sleep(15)
+        cycle += 1
     
-    # Get ADB information
+    if cycle >= max_wait_cycles:
+        rprint("[red]Timeout waiting for phone to start.[/red]")
+        return {}
+
+    # --- PHASE 3: GET ADB INFO ---
     adb_info = get_adb_information([phone_id])
-    if not adb_info:
-        rprint("[red]Failed to get ADB information. Retrying one more time![/red]")
+    
+    # Retry logic for ADB info
+    if not adb_info or adb_info[0].get("code") != 0:
+        rprint("[yellow]ADB not ready yet. Retrying...[/yellow]")
+        time.sleep(5)
         adb_info = get_adb_information([phone_id])
-    if not adb_info:
+
+    if not adb_info or adb_info[0].get("code") != 0:
         rprint("[red]Failed to get ADB information[/red]")
         return {}
         
-    # Check if we got valid ADB information
-    if adb_info[0].get("code") != 0:
-        rprint("[red]ADB information not ready yet[/red]")
-        return {}
-        
     connection_info = adb_info[0]
-    rprint("\n[yellow]ADB Connection Information:[/yellow]")
-    rprint(f"[cyan]IP: {connection_info['ip']}[/cyan]")
-    rprint(f"[cyan]Port: {connection_info['port']}[/cyan]")
-    rprint(f"[cyan]Password: {connection_info['pwd']}[/cyan]")
-    
+    rprint(f"[cyan]ADB Ready: {connection_info['ip']}:{connection_info['port']}[/cyan]")
     return connection_info
 
-def connect_to_phone(phone_id: str) -> dict:
+def connect_to_phone(phone_id: str, launch_phone=True) -> dict:
     """
     Connects to a phone using ADB commands.
     First makes the phone ready, then establishes ADB connection and logs in.
@@ -103,7 +130,7 @@ def connect_to_phone(phone_id: str) -> dict:
         dict: Connection information if successful, empty dict if failed
     """
     # First make sure the phone is ready
-    connection_info = make_phone_ready(phone_id)
+    connection_info = make_phone_ready(phone_id, launch_phone)
     if not connection_info:
         rprint("[red]Failed to get connection information[/red]")
         return {}
