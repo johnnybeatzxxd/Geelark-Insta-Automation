@@ -9,7 +9,7 @@ from nav_search import open_search_page, search_for_user, get_follow_status, cli
 from helper import open_page 
 from warmup import perform_scroll, perform_double_tap 
 from database import log_action
-
+from browse_reels import browse_reels_session
 # Default logger
 log = rprint
 
@@ -128,7 +128,7 @@ def vet_profile_content(driver):
         log(f"[red]Vetting Error: {e}[/red]")
         driver.press("back") # Emergency exit
 
-def perform_follow_session(device, driver, targets_list, config, logger_func, state=None):
+def perform_follow_session(device, driver, targets_list, config, logger_func=None, state=None):
     """
     U2 Version of Follow Session.
     Note: 'device' arg removed/merged into logic if not needed, 
@@ -157,8 +157,8 @@ def perform_follow_session(device, driver, targets_list, config, logger_func, st
             if i > 0 and i % config['pattern_break'] == 0:
                 log("[bold magenta]Taking a Pattern Break...[/bold magenta]")
                 return_to_base_state(driver)
-                if open_page(driver, "Home", logger_func=log):
-                    human_sleep(10, 15) 
+                if open_page(driver,'reels', logger_func=log):
+                    browse_reels_session(driver, duration_minutes=1, logger_func=log)
                 log("[magenta]Break over. Returning to Search.[/magenta]")
 
             # B. Navigate
