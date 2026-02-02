@@ -1,41 +1,29 @@
-import sqlite3
+from peewee import SqliteDatabase, PostgresqlDatabase
 import os
 
-DB_FILE = 'instagram_farm.db'
-OUTPUT_FILE = 'recovered_targets.txt'
+# Use your existing logic to determine DB type
+if os.getenv('DB_HOST'):
+    db = PostgresqlDatabase(
+        'instagram_farm',
+        user=os.getenv('DB_USER'),
+        password=os.getenv('DB_PASS'),
+        host=os.getenv('DB_HOST'),
+        port=5432
+    )
+else:
+    db = SqliteDatabase('instagram_farm.db')
 
-def export_targets():
-    if not os.path.exists(DB_FILE):
-        print(f"Error: {DB_FILE} not found.")
-        return
-
-    print(f"Connecting to {DB_FILE}...")
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-
-    # Select only pending ones so we don't re-follow people
+def migrate():
+    print("Adding 'group_name' to Account table...")
     try:
-        cursor.execute("SELECT username FROM target WHERE status = 'pending'")
-        rows = cursor.fetchall()
-        
-        if not rows:
-            print("No pending targets found.")
-            return
-
-        print(f"Found {len(rows)} pending targets. Saving to {OUTPUT_FILE}...")
-        
-        with open(OUTPUT_FILE, 'w') as f:
-            for row in rows:
-                clean_name = row[0].strip()
-                if clean_name:
-                    f.write(f"{clean_name}\n")
-        
-        print("Done! You can now delete the database safely.")
-
+        db.connect()
+        # Add column (nullable)
+        db.execute_sql("ALTER TABLE account ADD COLUMN group_name TEXT DEFAULT NULL")
+        print("Success.")
     except Exception as e:
-        print(f"Error extracting: {e}")
+        print(f"Migration error (Column likely exists): {e}")
     finally:
-        conn.close()
+        db.close()
 
 if __name__ == "__main__":
-    export_targets()
+    migrate()

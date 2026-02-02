@@ -16,6 +16,7 @@ class AccountDetail(BaseModel):
     stream_url: Optional[str] = None
     task_mode: str 
     warmup_day: Optional[int]
+    group_name: Optional[str]
     stats: AccountStats
 
 class TargetBase(BaseModel):

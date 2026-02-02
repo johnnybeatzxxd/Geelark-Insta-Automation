@@ -32,6 +32,7 @@ def get_automation_status():
             "stream_url": a.stream_url,
             "task_mode": a.task_mode,
             "warmup_day": a.warmup_day,
+            "group_name": a.group_name,
             "stats": {
                 "recent_2h": a.cached_2h_count,
                 "rolling_24h": a.cached_24h_count

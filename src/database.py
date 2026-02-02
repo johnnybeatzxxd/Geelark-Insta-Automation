@@ -54,6 +54,7 @@ class Account(BaseModel):
 
     cached_2h_count = IntegerField(default=0)
     cached_24h_count = IntegerField(default=0)
+    group_name = TextField(null=True)
 
 # --- 3. TARGETS (The Leads) ---
 class Target(BaseModel):
@@ -138,22 +139,37 @@ def sync_devices_with_api(api_devices: List[Dict]):
     
     for device in api_devices:
         # We use the actual Geelark ID here
+        group_data = device.get('group', {})
+        g_name = group_data.get('name')
+
         acc, created = Account.get_or_create(
             device_id=device['id'], 
             defaults={
-                'profile_name': device.get('name'), 
+                'profile_name': device.get('name'),
+                'group_name': g_name,
                 'is_enabled': False,
                 'status': 'active'
             }
         )
+
         if not created:
+            updates = {}
+            
             # Sync name if changed
             if acc.profile_name != device.get('name'):
-                acc.profile_name = device.get('name')
-                acc.save()
+                updates['profile_name'] = device.get('name')
+            
+            # Sync group if changed
+            if acc.group_name != g_name:
+                updates['group_name'] = g_name
+                
+            # Sync Status
             if acc.status != 'active':
-                acc.status = 'active'
-                acc.save()
+                updates['status'] = 'active'
+            
+            # Perform efficient update
+            if updates:
+                Account.update(updates).where(Account.device_id == device['id']).execute()
 
     # Archive accounts that no longer exist in Geelark
     # SAFETY: Only archive if we got a valid list and it's not suspiciously empty 
