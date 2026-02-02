@@ -214,11 +214,33 @@ def manager_loop():
 
         # 4. AUTO-COMPLETE CHECK
         pending_targets = db.get_total_pending_targets()
-        if pending_targets == 0 and len(active_processes) == 0:
-            log("JOB COMPLETE: No pending targets and no active workers.", "bold green")
+        
+        # Check if there are ANY enabled accounts set to 'warmup'
+        # If these exist, we must keep the system ON even if targets are 0.
+        has_warmup_tasks = db.Account.select().where(
+            (db.Account.status == 'active') & 
+            (db.Account.is_enabled == True) & 
+            (db.Account.task_mode == 'warmup')
+        ).exists()
+
+        # Shutdown Condition: 
+        # 1. No Targets AND
+        # 2. No Active Workers AND
+        # 3. No Warmup Tasks waiting to run
+        if pending_targets == 0 and len(active_processes) == 0 and not has_warmup_tasks:
+            log("JOB COMPLETE: No pending targets, no active workers, and no Warmup tasks.", "bold green")
             log("Turning Global Switch OFF.", "green")
             db.set_global_automation(False)
             continue
+
+        # 5. Inventory Check (Low Inventory Pause)
+        # We only pause for low inventory if we DO NOT have warmup tasks to run.
+        # If we have warmup tasks, we must proceed to Step 7 to launch them.
+        if not has_warmup_tasks:
+            if pending_targets < SESSION_CONFIG['min_batch_start'] and len(active_processes) == 0:
+                log(f"Inventory low ({pending_targets}). Waiting for targets...", "yellow")
+                smart_sleep_and_listen(30)
+                continue
 
         # 5. Inventory Check (Low Inventory Pause)
         if pending_targets < SESSION_CONFIG['min_batch_start'] and len(active_processes) == 0:
