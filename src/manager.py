@@ -362,7 +362,7 @@ def manager_loop():
             from database import Account, update_account_runtime_status, get_account_heat_stats
             
             # Fetch all active accounts
-            all_accounts = Account.select().where(Account.status == 'active')
+            all_accounts = Account.select().where(Account.status == 'active').order_by(Account.device_id.desc())
             
             for acc in all_accounts:
                 # 1. CALCULATE STATS (The heavy lifting happens here now)

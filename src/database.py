@@ -337,7 +337,7 @@ def get_runnable_accounts() -> List[Account]:
     return list(Account.select().where(
         (Account.status == 'active') & 
         (Account.is_enabled == True)
-    ))
+    ).order_by(Account.device_id.desc())) # Consistent order
 
 # --- DATA INGESTION ---
 
