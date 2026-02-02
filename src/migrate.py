@@ -1,55 +1,41 @@
-# migrate_mode.py
-from peewee import SqliteDatabase
-from database import DB_NAME
+import sqlite3
+import os
 
-db = SqliteDatabase(DB_NAME)
+DB_FILE = 'instagram_farm.db'
+OUTPUT_FILE = 'recovered_targets.txt'
 
-def migrate():
-    print("Adding task_mode to Account table...")
-    db.connect()
+def export_targets():
+    if not os.path.exists(DB_FILE):
+        print(f"Error: {DB_FILE} not found.")
+        return
+
+    print(f"Connecting to {DB_FILE}...")
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+
+    # Select only pending ones so we don't re-follow people
     try:
-        # Default to 'follow' so existing bots don't break
-        db.execute_sql("ALTER TABLE account ADD COLUMN task_mode TEXT DEFAULT 'follow'")
-        print("Success.")
-    except Exception as e:
-        print(f"Skipped: {e}")
-    db.close()
+        cursor.execute("SELECT username FROM target WHERE status = 'pending'")
+        rows = cursor.fetchall()
+        
+        if not rows:
+            print("No pending targets found.")
+            return
 
-# migrate_db.py
-import json
-from database import SystemConfig, DEFAULT_WARMUP_STRATEGY
+        print(f"Found {len(rows)} pending targets. Saving to {OUTPUT_FILE}...")
+        
+        with open(OUTPUT_FILE, 'w') as f:
+            for row in rows:
+                clean_name = row[0].strip()
+                if clean_name:
+                    f.write(f"{clean_name}\n")
+        
+        print("Done! You can now delete the database safely.")
 
-def migrate_config():
-    print("Migrating Config JSON...")
-    try:
-        conf = SystemConfig.get_or_none(SystemConfig.key == 'session_config')
-        if conf:
-            current_config = json.loads(conf.value)
-            
-            # Check if key exists
-            if 'warmup_strategy' not in current_config:
-                current_config['warmup_strategy'] = DEFAULT_WARMUP_STRATEGY
-                print("[UPDATE] Added 'warmup_strategy' to config.")
-                
-                conf.value = json.dumps(current_config)
-                conf.save()
-            else:
-                print("[SKIP] 'warmup_strategy' already exists.")
     except Exception as e:
-        print(f"Error: {e}")
-
-def migrate_warmup_day():
-    print("Adding 'warmup_day' to Account table...")
-    db.connect()
-    try:
-        # Default to Day 1
-        db.execute_sql("ALTER TABLE account ADD COLUMN warmup_day INTEGER DEFAULT 1")
-        print("Success.")
-    except Exception as e:
-        print(f"Skipped: {e}")
-    db.close()
+        print(f"Error extracting: {e}")
+    finally:
+        conn.close()
 
 if __name__ == "__main__":
-    migrate()
-    migrate_config()
-    migrate_warmup_day()
+    export_targets()
