@@ -14,6 +14,8 @@ class AccountDetail(BaseModel):
     daily_limit: int
     cooldown_until: Optional[str] = None
     stream_url: Optional[str] = None
+    task_mode: str 
+    warmup_day: Optional[int]
     stats: AccountStats
 
 class TargetBase(BaseModel):

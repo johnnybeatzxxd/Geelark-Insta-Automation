@@ -30,6 +30,8 @@ def get_automation_status():
             "daily_limit": a.daily_limit,
             "cooldown_until": str(a.cooldown_until) if a.cooldown_until else None,
             "stream_url": a.stream_url,
+            "task_mode": a.task_mode,
+            "warmup_day": a.warmup_day,
             "stats": {
                 "recent_2h": a.cached_2h_count,
                 "rolling_24h": a.cached_24h_count
