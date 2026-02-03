@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException
 from .schemas import AutomationStatus, DeviceSelection, AccountResponse
-from database import set_global_automation, is_automation_on, set_account_enabled, queue_command, clear_account_cooldown, configure_and_enable_accounts
+from database import set_global_automation, is_automation_on, set_account_enabled, queue_command, clear_account_cooldown, configure_and_enable_accounts, sync_devices_with_api
 from urllib.parse import urlparse
+from geelark_api import get_available_phones
 
 router = APIRouter()
 
@@ -328,3 +329,29 @@ def clear_cooldown(device_id: str):
         )
     except Account.DoesNotExist:
         raise HTTPException(status_code=404, detail="Account not found")
+
+@router.post("/system/sync_devices")
+def trigger_device_sync():
+    """
+    1. Fetches from Cloud.
+    2. Updates DB immediately (for Frontend).
+    3. Tells Manager to update its RAM (for Workers).
+    """
+    try:
+        # 1. Fetch & Update DB (So user sees results instantly)
+        devices = get_available_phones()
+        if devices is None:
+            raise HTTPException(status_code=502, detail="Geelark API failed")
+            
+        sync_devices_with_api(devices)
+        
+        # 2. Signal the Manager (So automation picks up new phones instantly)
+        queue_command("FORCE_SYNC")
+        
+        return {
+            "status": "success", 
+            "message": f"Synced {len(devices)} devices. Manager signaled."
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

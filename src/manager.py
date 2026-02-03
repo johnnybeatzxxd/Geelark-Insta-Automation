@@ -33,6 +33,37 @@ def log(msg, style="white"):
 
 # --- COMMAND HELPERS ---
 
+def perform_live_sync(source="Background"):
+    """
+    Fetches latest data from Geelark and updates Shared Memory & DB.
+    Args:
+        source (str): Label for logs (e.g., 'Background', 'Force')
+    """
+    try:
+        log(f"{source} Sync: Fetching devices from Geelark...", "dim")
+        live_api_devices = get_all_available_devices()
+        
+        if live_api_devices is not None:
+            # 1. Update Database
+            db.sync_devices_with_api(live_api_devices)
+            
+            # 2. Update Shared Memory (Thread-Safe)
+            # We keep the lock to ensure the main loop doesn't read while we write
+            with device_map_lock:
+                shared_device_map.clear()
+                for d in live_api_devices:
+                    shared_device_map[d['id']] = d
+            
+            log(f"{source} Sync: Updated {len(live_api_devices)} devices.", "dim")
+            return True
+        else:
+            log(f"{source} Sync: API returned None.", "yellow")
+            return False
+            
+    except Exception as e:
+        log(f"{source} Sync Error: {e}", "red")
+        return False
+
 def kill_worker(device_id):
     """Safely terminates a specific worker process."""
 
@@ -97,6 +128,10 @@ def process_command_queue():
             # Turn off the Global Switch so it doesn't restart
             db.set_global_automation(False)
 
+        elif cmd.command == "FORCE_SYNC":
+            log("RECEIVED COMMAND: FORCE_SYNC", "bold magenta")
+            perform_live_sync(source="Manual")
+
         db.complete_command(cmd.id, "completed") # Ensure this exists in database.py
         return True
         
@@ -145,26 +180,8 @@ def smart_sleep_and_listen(seconds):
 def background_api_sync():
     """Runs in a separate thread to sync with Geelark without blocking the Manager."""
     while True:
-        try:
-            log("Background Sync: Fetching devices from Geelark...", "dim")
-            live_api_devices = get_all_available_devices()
-            
-            if live_api_devices is not None:
-                # 1. Update Database
-                db.sync_devices_with_api(live_api_devices)
-                
-                # 2. Update Shared Memory (Thread-Safe)
-                with device_map_lock:
-                    shared_device_map.clear()
-                    for d in live_api_devices:
-                        shared_device_map[d['id']] = d
-                
-                log(f"Background Sync: Updated {len(live_api_devices)} devices.", "dim")
-            else:
-                log("Background Sync: API returned None. Retrying next cycle.", "yellow")
-                
-        except Exception as e:
-            log(f"Background Sync Error: {e}", "red")
+        # We just call the logic function
+        perform_live_sync(source="Background")
         
         # Sleep for 10 minutes (600 seconds)
         time.sleep(600)
