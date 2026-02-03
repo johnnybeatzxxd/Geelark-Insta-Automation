@@ -1,10 +1,12 @@
 from fastapi import APIRouter, HTTPException
 from .schemas import AutomationStatus, DeviceSelection, AccountResponse
-from database import set_global_automation, is_automation_on, set_account_enabled, queue_command, clear_account_cooldown, configure_and_enable_accounts
+from database import set_global_automation, is_automation_on, set_account_enabled, queue_command, clear_account_cooldown, configure_and_enable_accounts, sync_devices_with_api
 from urllib.parse import urlparse
+from geelark_api import get_available_phones
 
 router = APIRouter()
 
+ws_router = APIRouter() 
 # --- AUTOMATION ENDPOINTS ---
 
 @router.get("/automation/status", response_model=AutomationStatus)
@@ -16,7 +18,7 @@ def get_automation_status():
     is_on = is_automation_on()
     
     # Fetch all accounts - NO CALCULATIONS needed here anymore
-    accounts = list(Account.select())
+    accounts = list(Account.select().order_by(Account.device_id.desc()))
     account_details = []
     
     for a in accounts:
@@ -29,6 +31,9 @@ def get_automation_status():
             "daily_limit": a.daily_limit,
             "cooldown_until": str(a.cooldown_until) if a.cooldown_until else None,
             "stream_url": a.stream_url,
+            "task_mode": a.task_mode,
+            "warmup_day": a.warmup_day,
+            "group_name": a.group_name,
             "stats": {
                 "recent_2h": a.cached_2h_count,
                 "rolling_24h": a.cached_24h_count
@@ -106,8 +111,7 @@ from database import Account, get_account_heat_stats
 @router.get("/accounts", response_model=List[AccountResponse])
 def list_accounts():
     """List all accounts known to the system."""
-    accounts = list(Account.select())
-    # Convert datetime to string for JSON serialization if needed, 
+    accounts = list(Account.select().order_by(Account.device_id.desc()))
     # though Pydantic handles datetime objects well, we explicitly handle it if it's None
     return [
         AccountResponse(
@@ -242,7 +246,7 @@ def get_logs(limit: int = 100, device_id: Optional[str] = None):
         ) for l in query
     ]
 
-@router.websocket("/logs/ws/{device_id}")
+@ws_router.websocket("/logs/ws/{device_id}")
 async def websocket_endpoint(websocket: WebSocket, device_id: str):
     """
     Real-time log streamer. 
@@ -325,3 +329,29 @@ def clear_cooldown(device_id: str):
         )
     except Account.DoesNotExist:
         raise HTTPException(status_code=404, detail="Account not found")
+
+@router.post("/system/sync_devices")
+def trigger_device_sync():
+    """
+    1. Fetches from Cloud.
+    2. Updates DB immediately (for Frontend).
+    3. Tells Manager to update its RAM (for Workers).
+    """
+    try:
+        # 1. Fetch & Update DB (So user sees results instantly)
+        devices = get_available_phones()
+        if devices is None:
+            raise HTTPException(status_code=502, detail="Geelark API failed")
+            
+        sync_devices_with_api(devices)
+        
+        # 2. Signal the Manager (So automation picks up new phones instantly)
+        queue_command("FORCE_SYNC")
+        
+        return {
+            "status": "success", 
+            "message": f"Synced {len(devices)} devices. Manager signaled."
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

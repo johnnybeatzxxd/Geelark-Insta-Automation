@@ -289,12 +289,14 @@ def get_available_phones(adb_enabled=True) -> list[dict]:
         remark = phone.get("remark", "").lower()
         if "inactive" not in remark:
             equipment_info = phone.get("equipmentInfo", {})
+            raw_group = phone.get("group", {})
             phone_info = {
                 "id": phone.get("id"),
                 "name": phone.get("serialName", "Unknown"),
                 "status": "active",
                 "brand": equipment_info.get("deviceBrand", "Unknown"),
-                "model": equipment_info.get("deviceModel", "Unknown")
+                "model": equipment_info.get("deviceModel", "Unknown"),
+                "group": raw_group
             }
             available_phones.append(phone_info)
 

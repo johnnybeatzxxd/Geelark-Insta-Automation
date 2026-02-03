@@ -24,7 +24,6 @@ active_processes = {}
 active_processes = {} 
 # NEW: Track which ports are currently assigned to which device
 # Format: { "device_id": (appium_port, system_port) }
-active_ports_registry = {}
 
 
 def log(msg, style="white"):
@@ -33,6 +32,37 @@ def log(msg, style="white"):
     rprint(f"[{timestamp}] [{style}]{msg}[/{style}]")
 
 # --- COMMAND HELPERS ---
+
+def perform_live_sync(source="Background"):
+    """
+    Fetches latest data from Geelark and updates Shared Memory & DB.
+    Args:
+        source (str): Label for logs (e.g., 'Background', 'Force')
+    """
+    try:
+        log(f"{source} Sync: Fetching devices from Geelark...", "dim")
+        live_api_devices = get_all_available_devices()
+        
+        if live_api_devices is not None:
+            # 1. Update Database
+            db.sync_devices_with_api(live_api_devices)
+            
+            # 2. Update Shared Memory (Thread-Safe)
+            # We keep the lock to ensure the main loop doesn't read while we write
+            with device_map_lock:
+                shared_device_map.clear()
+                for d in live_api_devices:
+                    shared_device_map[d['id']] = d
+            
+            log(f"{source} Sync: Updated {len(live_api_devices)} devices.", "dim")
+            return True
+        else:
+            log(f"{source} Sync: API returned None.", "yellow")
+            return False
+            
+    except Exception as e:
+        log(f"{source} Sync Error: {e}", "red")
+        return False
 
 def kill_worker(device_id):
     """Safely terminates a specific worker process."""
@@ -48,8 +78,6 @@ def kill_worker(device_id):
         # Cleanup Memory
         del active_processes[device_id]
         
-        if device_id in active_ports_registry:
-            del active_ports_registry[device_id]
         # Cleanup DB (Release Targets)
         # We find targets currently reserved by this account
         try:
@@ -100,6 +128,10 @@ def process_command_queue():
             # Turn off the Global Switch so it doesn't restart
             db.set_global_automation(False)
 
+        elif cmd.command == "FORCE_SYNC":
+            log("RECEIVED COMMAND: FORCE_SYNC", "bold magenta")
+            perform_live_sync(source="Manual")
+
         db.complete_command(cmd.id, "completed") # Ensure this exists in database.py
         return True
         
@@ -148,26 +180,8 @@ def smart_sleep_and_listen(seconds):
 def background_api_sync():
     """Runs in a separate thread to sync with Geelark without blocking the Manager."""
     while True:
-        try:
-            log("Background Sync: Fetching devices from Geelark...", "dim")
-            live_api_devices = get_all_available_devices()
-            
-            if live_api_devices is not None:
-                # 1. Update Database
-                db.sync_devices_with_api(live_api_devices)
-                
-                # 2. Update Shared Memory (Thread-Safe)
-                with device_map_lock:
-                    shared_device_map.clear()
-                    for d in live_api_devices:
-                        shared_device_map[d['id']] = d
-                
-                log(f"Background Sync: Updated {len(live_api_devices)} devices.", "dim")
-            else:
-                log("Background Sync: API returned None. Retrying next cycle.", "yellow")
-                
-        except Exception as e:
-            log(f"Background Sync Error: {e}", "red")
+        # We just call the logic function
+        perform_live_sync(source="Background")
         
         # Sleep for 10 minutes (600 seconds)
         time.sleep(600)
@@ -217,11 +231,33 @@ def manager_loop():
 
         # 4. AUTO-COMPLETE CHECK
         pending_targets = db.get_total_pending_targets()
-        if pending_targets == 0 and len(active_processes) == 0:
-            log("JOB COMPLETE: No pending targets and no active workers.", "bold green")
+        
+        # Check if there are ANY enabled accounts set to 'warmup'
+        # If these exist, we must keep the system ON even if targets are 0.
+        has_warmup_tasks = db.Account.select().where(
+            (db.Account.status == 'active') & 
+            (db.Account.is_enabled == True) & 
+            (db.Account.task_mode == 'warmup')
+        ).exists()
+
+        # Shutdown Condition: 
+        # 1. No Targets AND
+        # 2. No Active Workers AND
+        # 3. No Warmup Tasks waiting to run
+        if pending_targets == 0 and len(active_processes) == 0 and not has_warmup_tasks:
+            log("JOB COMPLETE: No pending targets, no active workers, and no Warmup tasks.", "bold green")
             log("Turning Global Switch OFF.", "green")
             db.set_global_automation(False)
             continue
+
+        # 5. Inventory Check (Low Inventory Pause)
+        # We only pause for low inventory if we DO NOT have warmup tasks to run.
+        # If we have warmup tasks, we must proceed to Step 7 to launch them.
+        if not has_warmup_tasks:
+            if pending_targets < SESSION_CONFIG['min_batch_start'] and len(active_processes) == 0:
+                log(f"Inventory low ({pending_targets}). Waiting for targets...", "yellow")
+                smart_sleep_and_listen(30)
+                continue
 
         # 5. Inventory Check (Low Inventory Pause)
         if pending_targets < SESSION_CONFIG['min_batch_start'] and len(active_processes) == 0:
@@ -347,35 +383,9 @@ def manager_loop():
                 # LAUNCH SEQUENCE (Unified for both modes)
                 # ==========================================================
                 if automation_type:
-                    # --- ROBUST PORT CALCULATOR ---
-                    a_port = None
-                    s_port = None
-                    
-                    used_a_ports = set(p[0] for p in active_ports_registry.values())
-                    used_s_ports = set(p[1] for p in active_ports_registry.values())
-
-                    for i in range(50):
-                        candidate_a = 4723 + (i * 2)
-                        candidate_s = 8200 + i
-                        
-                        if candidate_a not in used_a_ports and candidate_s not in used_s_ports:
-                            a_port = candidate_a
-                            s_port = candidate_s
-                            break
-                    
-                    if a_port is None:
-                        log("CRITICAL: No free ports available! Skipping launch.", "bold red")
-                        # If we reserved targets but failed, give them back
-                        if automation_type == 'follow':
-                            db.release_targets(payload.get('targets', []))
-                        continue
-
-                    # Register these ports immediately
-                    active_ports_registry[acc.device_id] = (a_port, s_port)
-
                     p = multiprocessing.Process(
                         target=run_automation_for_device,
-                        args=(full_device_data, automation_type, a_port, s_port, payload)
+                        args=(full_device_data, automation_type, payload)
                     )
                     p.start()
                     active_processes[acc.device_id] = p
@@ -391,7 +401,7 @@ def manager_loop():
             from database import Account, update_account_runtime_status, get_account_heat_stats
             
             # Fetch all active accounts
-            all_accounts = Account.select().where(Account.status == 'active')
+            all_accounts = Account.select().where(Account.status == 'active').order_by(Account.device_id.desc())
             
             for acc in all_accounts:
                 # 1. CALCULATE STATS (The heavy lifting happens here now)

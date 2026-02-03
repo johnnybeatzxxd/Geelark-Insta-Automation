@@ -1,12 +1,23 @@
 import datetime
 import os
+import time
 from typing import List, Dict, Optional
 from peewee import *
 
-# --- DATABASE SETUP ---
-DB_NAME = 'instagram_farm.db'
-# We use WAL mode to allow the Manager and multiple Workers to write to the DB at the same time safely.
-db = SqliteDatabase(DB_NAME, pragmas={'journal_mode': 'wal', 'foreign_keys': 1})
+# --- CONNECTION LOGIC ---
+DB_NAME = os.getenv('DB_NAME', 'instagram_farm')
+DB_USER = os.getenv('DB_USER', 'farm_user')
+DB_PASS = os.getenv('DB_PASS', 'farm_password_123')
+DB_HOST = os.getenv('DB_HOST', 'localhost')
+
+db = None
+
+if os.getenv('DB_HOST'):
+    # POSTGRES MODE (Docker)
+    db = PostgresqlDatabase(None) # Defer initialization
+else:
+    # SQLITE MODE (Local Testing)
+    db = SqliteDatabase('instagram_farm.db', pragmas={'journal_mode': 'wal'})
 
 class BaseModel(Model):
     class Meta:
@@ -15,7 +26,7 @@ class BaseModel(Model):
 # --- 1. SYSTEM CONFIG (Global Control) ---
 class SystemConfig(BaseModel):
     key = CharField(unique=True)   # e.g., 'global_automation_status'
-    value = CharField()            # 'ON' or 'OFF'
+    value = TextField()
 
 # --- 2. ACCOUNTS (The Workers) ---
 class Account(BaseModel):
@@ -39,10 +50,11 @@ class Account(BaseModel):
     cooldown_until = DateTimeField(null=True)
     
     # Stream URL for remote viewing
-    stream_url = CharField(null=True)
+    stream_url = TextField(null=True)
 
     cached_2h_count = IntegerField(default=0)
     cached_24h_count = IntegerField(default=0)
+    group_name = TextField(null=True)
 
 # --- 3. TARGETS (The Leads) ---
 class Target(BaseModel):
@@ -88,11 +100,32 @@ class DeviceLog(BaseModel):
 
 # --- INITIALIZATION ---
 def initialize_db():
-    """Creates tables and ensures global keys exist."""
-    db.connect(reuse_if_open=True)
-    db.create_tables([SystemConfig, Account, Target, Action, SystemCommand, DeviceLog])
+    """Attempts to connect to the DB with retries."""
+    if os.getenv('DB_HOST'):
+        # Retry loop for Postgres startup
+        for i in range(10):
+            try:
+                print(f"[DB] Attempting connection to Postgres at {DB_HOST} ({i+1}/10)...")
+                db.init(
+                    DB_NAME,
+                    user=DB_USER,
+                    password=DB_PASS,
+                    host=DB_HOST,
+                    port=5432
+                )
+                db.connect()
+                print("[DB] Connection Successful!")
+                break
+            except Exception as e:
+                print(f"[DB] Connection failed: {e}")
+                time.sleep(2)
+    else:
+        db.connect(reuse_if_open=True)
+
+    # Create Tables
+    db.create_tables([SystemConfig, Account, Target, Action, SystemCommand, DeviceLog], safe=True)
     
-    # Initialize the Master Switch if it doesn't exist
+    # Initialize Defaults
     SystemConfig.get_or_create(key='global_automation_status', defaults={'value': 'OFF'})
 
 
@@ -106,22 +139,37 @@ def sync_devices_with_api(api_devices: List[Dict]):
     
     for device in api_devices:
         # We use the actual Geelark ID here
+        group_data = device.get('group', {})
+        g_name = group_data.get('name')
+
         acc, created = Account.get_or_create(
             device_id=device['id'], 
             defaults={
-                'profile_name': device.get('name'), 
+                'profile_name': device.get('name'),
+                'group_name': g_name,
                 'is_enabled': False,
                 'status': 'active'
             }
         )
+
         if not created:
+            updates = {}
+            
             # Sync name if changed
             if acc.profile_name != device.get('name'):
-                acc.profile_name = device.get('name')
-                acc.save()
+                updates['profile_name'] = device.get('name')
+            
+            # Sync group if changed
+            if acc.group_name != g_name:
+                updates['group_name'] = g_name
+                
+            # Sync Status
             if acc.status != 'active':
-                acc.status = 'active'
-                acc.save()
+                updates['status'] = 'active'
+            
+            # Perform efficient update
+            if updates:
+                Account.update(updates).where(Account.device_id == device['id']).execute()
 
     # Archive accounts that no longer exist in Geelark
     # SAFETY: Only archive if we got a valid list and it's not suspiciously empty 
@@ -305,7 +353,7 @@ def get_runnable_accounts() -> List[Account]:
     return list(Account.select().where(
         (Account.status == 'active') & 
         (Account.is_enabled == True)
-    ))
+    ).order_by(Account.device_id.desc())) # Consistent order
 
 # --- DATA INGESTION ---
 

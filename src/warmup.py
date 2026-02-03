@@ -2,15 +2,11 @@ import time
 import random
 import os
 from rich import print as rprint
-from appium.webdriver.common.appiumby import AppiumBy
-from selenium.webdriver.common.action_chains import ActionChains
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import NoSuchElementException, TimeoutException
 
-# Import the reels module
+# Import the reels module (Note: You must convert this file to U2 as well!)
 import browse_reels
 
+# Default logger
 log = rprint
 
 # --- CONSTANTS ---
@@ -33,7 +29,7 @@ ID_CLIPS_CONTAINER = "com.instagram.android:id/clips_video_container"
 # Interaction Buttons
 ID_LIKE_BUTTON = "com.instagram.android:id/row_feed_button_like" 
 ID_COMMENT_BUTTON = "com.instagram.android:id/row_feed_button_comment"
-ID_INLINE_FOLLOW_BUTTON = "com.instagram.android:id/inline_follow_button" # The button next to username
+ID_INLINE_FOLLOW_BUTTON = "com.instagram.android:id/inline_follow_button" 
 
 # --- HELPERS ---
 
@@ -43,9 +39,6 @@ def chance(percentage: int) -> bool:
 def human_sleep(min_seconds=1.0, max_seconds=3.0, speed_mode="normal"):
     """
     Sleeps based on speed multiplier.
-    'slow' = 1.5x wait (Grandma mode)
-    'normal' = 1.0x wait
-    'fast' = 0.7x wait (Zoomer mode)
     """
     multipliers = {"slow": 1.5, "normal": 1.0, "fast": 0.7}
     factor = multipliers.get(speed_mode, 1.0)
@@ -53,24 +46,20 @@ def human_sleep(min_seconds=1.0, max_seconds=3.0, speed_mode="normal"):
     duration = random.uniform(min_seconds, max_seconds) * factor
     time.sleep(duration)
 
-def is_ad_or_suggestion(element):
+def is_ad_or_suggestion(element_info):
     """
     Checks if an element is an Ad based on content-desc.
+    Args:
+        element_info: The dictionary returned by u2 element.info
     """
     try:
-        desc = element.get_attribute("content-desc")
+        desc = element_info.get("contentDescription")
         if not desc: return False
         
         desc_str = str(desc)
         if "Sponsored" in desc_str:
             log(f"[yellow]     -> Detected AD: '{desc_str[:25]}...' -> SKIPPING[/yellow]")
             return True
-        # Note: We don't skip "Suggested" here if you want to allow following suggested users,
-        # but usually we want to interact with organic content. 
-        # If you want to skip suggested posts too, uncomment next lines:
-        # if "Suggested" in desc_str:
-        #     return True
-            
         return False
     except: return False
 
@@ -78,11 +67,11 @@ def is_ad_or_suggestion(element):
 
 def is_comment_modal_open(driver):
     try:
-        inputs = driver.find_elements(AppiumBy.ID, ID_COMMENT_INPUT)
-        if inputs and inputs[0].is_displayed(): return True
+        # U2 Check: Exists and is enabled/visible
+        if driver(resourceId=ID_COMMENT_INPUT).exists: return True
         
-        titles = driver.find_elements(AppiumBy.XPATH, "//*[@text='Comments' and @resource-id='com.instagram.android:id/title_text_view']")
-        if titles and titles[0].is_displayed(): return True
+        # Check title text
+        if driver(text="Comments", resourceId="com.instagram.android:id/title_text_view").exists: return True
         
         return False
     except: return False
@@ -90,8 +79,8 @@ def is_comment_modal_open(driver):
 def is_on_home_feed(driver):
     """Checks if we are safely on the home feed."""
     try:
-        tabs = driver.find_elements(AppiumBy.ID, ID_TAB_BAR)
-        if not tabs or not tabs[0].is_displayed(): return False
+        # Check if Tab Bar exists
+        if not driver(resourceId=ID_TAB_BAR).exists: return False
         if is_comment_modal_open(driver): return False
         return True
     except: return False
@@ -111,7 +100,7 @@ def ensure_back_to_feed(driver):
         else:
             log(f"[yellow]     -> Not on feed (Unknown state). Pressing Back...[/yellow]")
         
-        driver.back()
+        driver.press("back")
         human_sleep(1.5, 2.5)
 
     if is_on_home_feed(driver): return True
@@ -119,37 +108,29 @@ def ensure_back_to_feed(driver):
     return False
 
 # --- ACTIONS ---
+
 def perform_double_tap(driver, element=None, coords=None):
     """
     Performs a double tap.
     Args:
-        element: WebElement to tap (calculates center automatically).
-        coords: Tuple (x, y) to tap specific screen location.
+        driver: U2 Device Object
+        element: U2 UiObject
+        coords: Tuple (x, y)
     """
     try:
-        actions = ActionChains(driver)
+        x, y = 0, 0
         
-        # Determine where to click
         if element:
-            rect = element.rect
-            center_x = rect['x'] + (rect['width'] // 2)
-            center_y = rect['y'] + (rect['height'] // 2)
-            actions.w3c_actions.pointer_action.move_to_location(center_x, center_y)
+            # U2 element.center() returns (x, y)
+            x, y = element.center()
         elif coords:
-            actions.w3c_actions.pointer_action.move_to_location(coords[0], coords[1])
+            x, y = coords[0], coords[1]
         else:
             log("[red]Double Tap Error: No element or coords provided.[/red]")
             return False
 
-        # Perform the sequence: Down -> Up -> Pause -> Down -> Up
-        actions.w3c_actions.pointer_action.pointer_down()
-        actions.w3c_actions.pointer_action.pause(0.08)
-        actions.w3c_actions.pointer_action.pointer_up()
-        actions.w3c_actions.pointer_action.pause(0.08)
-        actions.w3c_actions.pointer_action.pointer_down()
-        actions.w3c_actions.pointer_action.pause(0.08)
-        actions.w3c_actions.pointer_action.pointer_up()
-        actions.perform()
+        # U2 has native double click support which is very reliable
+        driver.double_click(x, y)
         
         log("[magenta]   * Action: Double-tapped.[/magenta]")
         return True
@@ -157,70 +138,119 @@ def perform_double_tap(driver, element=None, coords=None):
         log(f"[red]Error double tapping: {e}[/red]")
         return False
 
-def perform_scroll(driver, direction="down", duration_ms=None):
-    if duration_ms is None: duration_ms = random.randint(400, 800)
-    dims = driver.get_window_size()
-    w, h = dims['width'], dims['height']
-    cx = (w // 2) + random.randint(-20, 20)
+def perform_scroll(driver, direction="down", speed="normal"):
+    """
+    Robust, straight-line scrolling. Matches Appium behavior.
+    """
+    w, h = driver.window_size()
+    
+    # 1. Dead Center X-Axis (Stable)
+    cx = w * 0.5 
+
+    # 2. Logic
+    start_y = 0
+    end_y = 0
+    duration = 0.5
 
     if direction == "down":
-        driver.swipe(cx, int(h * 0.85), cx, int(h * 0.15), duration_ms)
+        # SCROLL DOWN = Finger moves BOTTOM -> TOP
+        # Start: 85% down the screen
+        # End: 10% from the top
+        # Delta: 75% of screen height (Long scroll)
+        start_y = h * 0.85
+        end_y = h * 0.10
+        
+        if speed == "fast":
+            duration = 0.1
+        elif speed == "slow":
+            duration = 0.45 
+        else:
+            duration = 0.25 
+
+        driver.swipe(cx, start_y, cx, end_y, duration)
+
+    elif direction == "up":
+        # SCROLL UP = Finger moves TOP -> BOTTOM
+        start_y = h * 0.20
+        end_y = h * 0.90
+        driver.swipe(cx, start_y, cx, end_y, 0.3)
+
     elif direction == "right":
-        driver.swipe(int(w * 0.85), int(h * 0.6), int(w * 0.15), int(h * 0.6), duration_ms)
+        # Carousel Swipe = RIGHT -> LEFT
+        start_x = w * 0.90
+        end_x = w * 0.10
+        cy = h * 0.5 # Center Y
+        driver.swipe(start_x, cy, end_x, cy, 0.3)
 
 def action_open_and_dump_xml(driver):
     """
     Finds a VALID, NON-AD post, clicks it, waits 10s, dumps XML.
     """
     try:
-        candidates = []
-        candidates.extend(driver.find_elements(AppiumBy.ID, ID_MEDIA_CONTAINER))
-        candidates.extend(driver.find_elements(AppiumBy.ID, ID_MEDIA_IMAGE_VIEW))
-        candidates.extend(driver.find_elements(AppiumBy.ID, ID_CLIPS_CONTAINER))
-
+        # U2 Selector Strategy: Find elements that match ANY of these IDs
+        # We loop through candidates. 
+        # Note: Iterating U2 lists can be slower than Appium if many elements exist.
+        
         target_element = None
-        for element in candidates:
-            try:
-                if element.is_displayed() and not is_ad_or_suggestion(element):
-                    target_element = element
-                    break
-            except: continue 
+        
+        # We define a list of IDs to check
+        candidate_ids = [ID_MEDIA_CONTAINER, ID_MEDIA_IMAGE_VIEW, ID_CLIPS_CONTAINER]
+        
+        for res_id in candidate_ids:
+            # Get all elements matching this ID
+            elems = driver(resourceId=res_id)
+            count = elems.count
+            
+            for i in range(count):
+                try:
+                    el = elems[i]
+                    info = el.info
+                    # Check visibility (bounds > 0) and Ad status
+                    bounds = info.get('bounds')
+                    if bounds and not is_ad_or_suggestion(info):
+                        target_element = el
+                        break
+                except: continue
+            
+            if target_element: break
 
         if not target_element: return
 
         log("[bold cyan]   * DATA COLLECTION: Clicking Post...[/bold cyan]")
         target_element.click()
         
-        # --- 10 SECOND WAIT FOR MANUAL CHECK ---
-        # log("[bold yellow]   !!! SLEEPING 10 SECONDS (Manual Check) !!![/bold yellow]")
-        # time.sleep(10)
-        # ---------------------------------------
+        # Wait slightly
+        time.sleep(2)
 
         try:
-            source = driver.page_source
+            # U2 dump_hierarchy is equivalent to page_source
+            xml_content = driver.dump_hierarchy()
             with open("posts.xml", "w", encoding='utf-8') as f:
-                f.write(source)
+                f.write(xml_content)
             log(f"[bold green]     -> XML saved.[/bold green]")
         except: pass
         
         if not ensure_back_to_feed(driver):
-            raise TimeoutException("Stuck after dumping XML")
+            raise Exception("Stuck after dumping XML")
 
     except Exception as e:
         log(f"[yellow]Dump error: {e}[/yellow]")
-        driver.back()
+        driver.press("back")
 
 def action_like_post(driver):
     """Like a visible post (skipping ads)."""
     try:
-        media_views = driver.find_elements(AppiumBy.ID, ID_MEDIA_CONTAINER)
-        if not media_views: media_views = driver.find_elements(AppiumBy.ID, ID_MEDIA_IMAGE_VIEW)
-        if not media_views: media_views = driver.find_elements(AppiumBy.ID, ID_CLIPS_CONTAINER)
-
-        if media_views: 
-            target = media_views[0]
-            if target.is_displayed() and not is_ad_or_suggestion(target):
-                return perform_double_tap(driver, target)
+        # Search priority: Media Container -> Image -> Clips
+        candidate_ids = [ID_MEDIA_CONTAINER, ID_MEDIA_IMAGE_VIEW, ID_CLIPS_CONTAINER]
+        
+        for res_id in candidate_ids:
+            elems = driver(resourceId=res_id)
+            if elems.exists:
+                # We usually interact with the first visible one
+                for i in range(min(2, elems.count)): # Check top 2 to find non-ad
+                    el = elems[i]
+                    if not is_ad_or_suggestion(el.info):
+                        return perform_double_tap(driver, el)
     except: pass
     return False
 
@@ -229,26 +259,24 @@ def action_follow_from_feed(driver):
     Finds a visible 'Follow' button on a feed post and clicks it.
     """
     try:
-        # Find all inline buttons currently loaded
-        follow_btns = driver.find_elements(AppiumBy.ID, ID_INLINE_FOLLOW_BUTTON)
+        # Find all inline buttons
+        follow_btns = driver(resourceId=ID_INLINE_FOLLOW_BUTTON)
         
-        target_btn = None
+        if not follow_btns.exists: return False
         
-        # Filter for a valid, visible button that actually says "Follow"
-        # This avoids clicking "Following" or "Requested"
-        for btn in follow_btns:
+        # Iterate to find one that explicitly says "Follow"
+        # U2 .get_text() extracts the text
+        for i in range(follow_btns.count):
             try:
-                if btn.is_displayed() and btn.text == "Follow":
-                    target_btn = btn
-                    break 
+                btn = follow_btns[i]
+                text = btn.get_text()
+                
+                if text and text.strip() == "Follow":
+                    log(f"[bold magenta]   * Action: Clicking Follow on Feed Post...[/bold magenta]")
+                    btn.click()
+                    return True
             except: continue
 
-        if target_btn:
-            log(f"[bold magenta]   * Action: Clicking Follow on Feed Post...[/bold magenta]")
-            target_btn.click()
-            # Wait for button state change
-            return True
-            
     except Exception as e:
         log(f"[yellow]Follow action failed: {e}[/yellow]")
     
@@ -257,8 +285,8 @@ def action_follow_from_feed(driver):
 def interact_with_suggestions_if_present(driver, follows_limit, current_follows):
     """Horizontal scroll on suggestion carousel."""
     try:
-        carousel = driver.find_elements(AppiumBy.ID, ID_SUGGESTION_CAROUSEL)
-        if not carousel or not carousel[0].is_displayed(): return current_follows
+        # Check existence
+        if not driver(resourceId=ID_SUGGESTION_CAROUSEL).exists: return current_follows
 
         log("[cyan]INFO: Suggestion Carousel detected.[/cyan]")
         if chance(35):
@@ -266,21 +294,24 @@ def interact_with_suggestions_if_present(driver, follows_limit, current_follows)
                 perform_scroll(driver, direction="right")
                 human_sleep(1.0, 2.0)
             
-            # Note: We use a different ID for carousel follow buttons if needed
-            # For now assuming same logic or skipping explicit carousel follows here 
-            # since main loop handles feed follows.
     except: pass
     return current_follows
 
 # --- MAIN CONTROLLER ---
 
-def perform_warmup(driver, config, logger_func=None):
+def perform_warmup(driver, config, logger_func=None, state=None):
     """
     Executes warmup based on the specific Day Configuration.
+    Args:
+        driver: UiAutomator2 Device Object
     """
     global log
     if logger_func:
         log = logger_func 
+
+    if state is None:
+        state = {"phase": "feed", "current_scroll": 0, "target_scrolls": None}
+
 
     log(f"[bold green]Starting Warmup Routine: {config.get('label', 'Unknown Day')}[/bold green]")
     
@@ -296,7 +327,6 @@ def perform_warmup(driver, config, logger_func=None):
     # ============================
     # PHASE 1: HOME FEED BROWSING
     # ============================
-    # Fix: Use .get('enabled') safely
     if feed_conf.get('enabled', False):
         min_s = feed_conf.get('minScrolls', 10)
         max_s = feed_conf.get('maxScrolls', 20)
@@ -304,7 +334,7 @@ def perform_warmup(driver, config, logger_func=None):
         
         log(f"[cyan]--- Phase 1: Feed ({target_scrolls} scrolls) ---[/cyan]")
         
-        for i in range(target_scrolls):
+        for i in range(state["current_scroll"], target_scrolls):
             log(f"[dim]Feed Post {i+1}/{target_scrolls}[/dim]")
             
             # Safety Check
@@ -318,21 +348,14 @@ def perform_warmup(driver, config, logger_func=None):
             limit_follows = limits.get('maxFollows', 3)
             interact_with_suggestions_if_present(driver, limit_follows, stats['follows'])
 
-            # 2. DECISION: XML Dump (Debugging - Optional)
-            if chance(chances.get('xml_dump', 0)):
-                action_open_and_dump_xml(driver)
-                stats['opened'] += 1
-                perform_scroll(driver, direction="down")
-                continue
-
             # 3. DECISION: Like Feed Post
-            if chance(chances.get('like', 0)):
+            if chance(chances.get('like', 1)):
                 if stats["likes"] < limits.get('maxLikes', 5):
                     if action_like_post(driver):
                         stats["likes"] += 1
                         human_sleep(0.5, 1.5, speed)
 
-            # 4. DECISION: Follow Feed Post (Vertical List)
+            # 4. DECISION: Follow Feed Post
             if chance(chances.get('follow', 0)):
                 if stats["follows"] < limits.get('maxFollows', 3):
                     if action_follow_from_feed(driver):
@@ -340,22 +363,33 @@ def perform_warmup(driver, config, logger_func=None):
                         human_sleep(1.0, 2.0, speed)
             
             # Scroll
-            perform_scroll(driver, direction="down")
-            
+            if speed == "fast":
+                # 70% chance to flick fast
+                current_action_speed = "fast" if chance(70) else "normal"
+            else:
+                # 70% chance to drag slow
+                current_action_speed = "slow" if chance(70) else "normal"
+
+            perform_scroll(driver, direction="down", speed=current_action_speed)
+            state["current_scroll"] = i + 1
+
+        state["phase"] = "reels" 
     else:
         log("[dim]Skipping Feed (Disabled in config)[/dim]")
 
     # ============================
     # PHASE 2: REELS SESSION
     # ============================
-    if reels_conf.get('enabled', False):
+    if reels_conf.get('enabled', False) and state["phase"] == "reels":
         min_m = reels_conf.get('minMinutes', 5)
         max_m = reels_conf.get('maxMinutes', 10)
         target_minutes = random.randint(min_m, max_m)
         
         if target_minutes > 0:
             log(f"[cyan]--- Phase 2: Switching to Reels ({target_minutes} mins) ---[/cyan]")
-            browse_reels.browse_reels_session(driver, duration_minutes=target_minutes)
+            # browse_reels is also converted to U2!
+            browse_reels.browse_reels_session(driver, duration_minutes=target_minutes,log_func=log)
+            state["phase"] = "complete"
     else:
         log("[dim]Skipping Reels (Disabled in config)[/dim]")
 

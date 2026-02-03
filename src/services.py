@@ -20,6 +20,10 @@ from appium.webdriver.appium_service import AppiumService
 from urllib3.exceptions import MaxRetryError, NewConnectionError, ProtocolError
 from selenium.common.exceptions import WebDriverException, InvalidSessionIdException
 
+import uiautomator2 as u2
+from requests.exceptions import ConnectionError as RequestsConnectionError
+from selenium.common.exceptions import WebDriverException
+# We removed the specific uiautomator2.exceptions import to prevent the crash
 # Modules
 from helper import open_page
 from warmup import perform_warmup
@@ -211,39 +215,61 @@ def create_device_logger(device_id,device_name: str):
             
     return device_specific_log
 
-def get_driver(device, appium_port: int, system_port: int, log=None):
+def cleanup_uiautomator_on_device(serial, log=None):
+    """
+    Kills orphaned uiautomator processes on the device to prevent
+    'UiAutomationService already registered' errors.
+    """
+    logger = log or rprint
     try:
-        log(f"[green]Getting the driver ready[/green]")
+        logger(f"[dim]Cleaning up uiautomator on {serial}...[/dim]")
+        # Command to kill various forms of uiautomator services
+        # 1. Kill the uiautomator binary if running
+        subprocess.run(["adb", "-s", serial, "shell", "pkill", "uiautomator"], capture_output=True)
+        # 2. Kill the u2 stub if legacy/orphaned
+        subprocess.run(["adb", "-s", serial, "shell", "pkill", "-f", "com.github.uiautomator"], capture_output=True)
+        # 3. Kill the wetest/uia2 server specifically (found in user logs)
+        subprocess.run(["adb", "-s", serial, "shell", "pkill", "-f", "com.wetest.uia2"], capture_output=True)
+        
+        time.sleep(1.5) # Give the system a moment to release the service
+    except Exception as e:
+        logger(f"[dim]Cleanup notice: {e}[/dim]")
+
+def get_driver(device, log=None, launch_phone=True):
+    try:
+        log(f"[green]Waiting the phone to start ...[/green]")
         
         # 1. Connect to Device
         if device["type"] == "local":
             connection_info = { "ip": device["id"].split(":")[0], "port": device["id"].split(":")[1] }
         else:
-            connection_info = connect_to_phone(device['id'])
-
+            connection_info = connect_to_phone(device['id'],launch_phone=launch_phone)
+            log(f"[green]Phone Started.[/green]")
         if not connection_info:
             log("[red]Failed to get connection info. Terminating.[/red]")
             return
 
-        # 2. Start Appium Server
-        appium_service = start_appium_service_instance('127.0.0.1', appium_port, system_port, log)
-        server_url = f"http://127.0.0.1:{appium_port}/wd/hub"
-        time.sleep(2)
-        # 3. Initialize Driver
-        # (Assuming setup_appium_driver is defined elsewhere)
-        driver = setup_appium_driver(connection_info, server_url, system_port)
-        if not driver:
-            log("[red]Failed to initialize driver. Terminating.[/red]")
-            return
+        serial = f"{connection_info['ip']}:{connection_info['port']}"
+        
+        # --- FIX: Cleanup before connection ---
+        cleanup_uiautomator_on_device(serial, log)
+        
+        log(f"[yellow]Connecting to {serial}...[/yellow]")
+        d = u2.connect(serial)
 
-        log("[green]Driver ready. Loading configuration...[/green]")
-        return driver
+        # Optional: Set global settings for speed
+        d.settings['operation_delay'] = (0.1, 0.1) # Faster clicks
+        d.settings['wait_timeout'] = 10.0 # Default wait
+        
+        log(f"[green]U2 Connected! Info: {d.info.get('model')}[/green]")
+        return d
+
     except Exception as e:
         log(f"[red]Driver Init Error: {str(e)}[/red]")
         return None
 
 
-def run_automation_for_device(device: dict, automation_type: str, appium_port: int, system_port: int, payload: dict):
+def run_automation_for_device(device: dict, automation_type: str, payload: dict):
     device_name = device.get('name', 'Unknown')
     device_id = device.get('id')
     logger = create_device_logger(device_id, device_name)
@@ -255,9 +281,22 @@ def run_automation_for_device(device: dict, automation_type: str, appium_port: i
     # --- RESILIENCE CONFIG ---
     MAX_HEALS = 3
     heals_attempted = 0
+
+    warmup_session_state = {
+        "phase": "feed",       # 'feed' or 'reels'
+        "current_scroll": 0,   # How many scrolls done so far
+        "target_scrolls": None # Set once and kept
+    }
+
+    follow_session_state = {
+        "current_index": 0,      # Which username in the list are we on?
+        "successful_follows": 0, # Total successes for this session
+        "phase": "follow"        # Helpful for debugging
+    }
     
     try:
         logger(f"[yellow]Worker activated for {automation_type}.[/yellow]")
+        launch_phone = True
         
         while heals_attempted <= MAX_HEALS:
 
@@ -269,21 +308,27 @@ def run_automation_for_device(device: dict, automation_type: str, appium_port: i
                 # 1. Initialize Driver
                 # If we are healing, driver is None, so get_driver will spin up a fresh one
                 if driver is None:
-                    driver = get_driver(device, appium_port, system_port, logger)
+                    driver = get_driver(device, logger, launch_phone=launch_phone)
                 
                 if not driver:
                     # If get_driver fails, throw an exception to trigger the retry logic below
-                    raise WebDriverException("Failed to acquire driver")
+                    raise Exception("Failed to acquire driver")
+
+                logger("Launching Instagram ...")
+                driver.app_start("com.instagram.android")
 
                 # 2. PERFORM TASKS
                 if automation_type == "warmup":
                     day_config = payload.get('day_config')
                     if open_page(driver, "Home", logger_func=logger):
-                        perform_warmup(driver, day_config, logger_func=logger)
+                        perform_warmup(driver, day_config, logger_func=logger, state=warmup_session_state)
                         session_completed = True
                         break 
                     else:
-                        raise WebDriverException("Warmup Nav Failure")
+                        logger("[yellow]Navigation failed (Logic). Retrying current heal cycle...[/yellow]")
+                        heals_attempted += 1
+                        time.sleep(2)
+                        continue
 
                 elif automation_type == "follow":
                     if open_page(driver, "Search", logger_func=logger):
@@ -291,50 +336,42 @@ def run_automation_for_device(device: dict, automation_type: str, appium_port: i
                             device=device,
                             driver=driver, 
                             targets_list=targets_to_process, 
-                            config=payload['config'], 
-                            logger_func=logger
+                            config=payload['config'],
+                            logger_func=logger,
+                            state=follow_session_state,
                         )
                         session_completed = True
                         break 
                     else:
                         raise WebDriverException("Search Nav Failure")
             
-            # 3. SAFE AUTO-HEAL (No ADB Killing)
-            except (MaxRetryError, NewConnectionError, ProtocolError, InvalidSessionIdException, WebDriverException) as e:
-                if not IS_RUNNING:
-                    logger("[red]Connection dropped due to Stop Signal. Aborting (No Heal).[/red]")
-                    break
+            # 3. SAFE AUTO-HEAL (U2 VERSION)
+            except (RequestsConnectionError, Exception) as e:
+                
+                if not IS_RUNNING: break
 
-                heals_attempted += 1
+                # U2 usually raises simple Exceptions or RequestsConnectionError on disconnect
                 err_msg = str(e)
                 
-                # We assume virtually any WebDriver error during a cloud session is a connection drop
-                # that is worth retrying at least once.
+                # Check for disconnect signals
+                is_disconnect = any(x in err_msg for x in ["Connection refused", "Connection reset", "RPC", "HTTPConnectionPool", "connection"])
                 
-                if heals_attempted <= MAX_HEALS:
-                    logger(f"[bold red]CONNECTION DROP DETECTED ({heals_attempted}/{MAX_HEALS})[/bold red]")
-                    logger(f"[yellow]Error: {err_msg[:100]}...[/yellow]")
-                    logger("[cyan]Initiating Surgical Auto-Heal...[/cyan]")
+                if is_disconnect or isinstance(e, RequestsConnectionError):
+                    heals_attempted += 1
                     
-                    # A. Kill ONLY this driver instance
-                    if driver:
-                        try: driver.quit()
-                        except: pass
-                    
-                    # Set driver to None so the loop creates a fresh one next time
-                    driver = None
-                    
-                    # B. Wait for the socket to clear naturally
-                    logger("Waiting 10s for socket to release...")
-                    time.sleep(10)
-                    
-                    logger("[green]Reconnecting to phone...[/green]")
-                    continue # Loop back to start
+                    if heals_attempted <= MAX_HEALS:
+                        logger(f"[bold red]CONNECTION DROP DETECTED ({heals_attempted}/{MAX_HEALS})[/bold red]")
+                        
+                        # No need to "quit" U2 driver, just null it
+                        driver = None
+                        launch_phone = False
+                        logger("Waiting 5s for socket to release...")
+                        time.sleep(5)
+                        logger("[green]Reconnecting...[/green]")
+                        continue 
                 
-                else:
-                    logger(f"[bold red]Max Heals Exceeded. Aborting session.[/bold red]")
-                    raise e
-
+                # If it's not a connection error, it's a logic crash. Bubble it up.
+                raise e
     except Exception as e:
         session_completed = False
         logger(f"[bold red]CRITICAL WORKER FAILURE: {e}[/bold red]")
