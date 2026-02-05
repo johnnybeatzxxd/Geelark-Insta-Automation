@@ -151,7 +151,7 @@ def perform_follow_session(device, driver, targets_list, config, logger_func=Non
     for i in range(state["current_index"], len(targets_list)):
         username = targets_list[i] 
         try:
-            log(f"\n[cyan]--- Processing {i+1}/{len(targets_list)}: {username} ---[/cyan]")
+            log(f"[cyan]--- Processing {i+1}/{len(targets_list)}: {username} ---[/cyan]")
 
             # A. Pattern Break Logic
             if i > 0 and i % config['pattern_break'] == 0:
@@ -166,8 +166,9 @@ def perform_follow_session(device, driver, targets_list, config, logger_func=Non
             
             # FIX: If search page fails, SKIP this user instead of stopping the whole session
             if not open_search_page(driver): 
-                log(f"[red]Failed to open search page for {username}. Skipping.[/red]")
-                continue
+                if not open_page(driver, "search", logger_func=log):
+                    log(f"[red]Failed to open search page for {username}. Skipping.[/red]")
+                    continue
             
             # search_for_user needs to be updated to U2 in nav_search.py!
             if not search_for_user(driver, username):
