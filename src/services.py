@@ -312,7 +312,7 @@ def run_automation_for_device(device: dict, automation_type: str, payload: dict)
                 
                 if not driver:
                     # If get_driver fails, throw an exception to trigger the retry logic below
-                    raise Exception("Failed to acquire driver")
+                    raise RequestsConnectionError("Initial Driver Connect Failed")
 
                 logger("Launching Instagram ...")
                 driver.app_start("com.instagram.android")
