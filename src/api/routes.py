@@ -18,7 +18,11 @@ def get_automation_status():
     is_on = is_automation_on()
     
     # Fetch all accounts - NO CALCULATIONS needed here anymore
-    accounts = list(Account.select().order_by(Account.device_id.desc()))
+    accounts = list(
+        Account.select()
+        .where(Account.status == 'active')
+        .order_by(Account.device_id.desc())
+    )
     account_details = []
     
     for a in accounts:
@@ -111,7 +115,7 @@ from database import Account, get_account_heat_stats
 @router.get("/accounts", response_model=List[AccountResponse])
 def list_accounts():
     """List all accounts known to the system."""
-    accounts = list(Account.select().order_by(Account.device_id.desc()))
+    accounts = list(Account.select().where(Account.status == 'active'))
     # though Pydantic handles datetime objects well, we explicitly handle it if it's None
     return [
         AccountResponse(
