@@ -135,7 +135,12 @@ def perform_follow_session(device, driver, targets_list, config, logger_func=Non
     but 'driver' is the U2 object now.
     """
     global log
-    log = logger_func 
+    if logger_func:
+        # 1. Update LOCAL logger
+        log = logger_func 
+        # 2. Update IMPORTED modules loggers so they print to Frontend too!
+        import nav_search
+        nav_search.log = logger_func
 
     if state is None:
         state = {"current_index": 0, "successful_follows": 0}
@@ -162,7 +167,6 @@ def perform_follow_session(device, driver, targets_list, config, logger_func=Non
                 log("[magenta]Break over. Returning to Search.[/magenta]")
 
             # B. Navigate
-            return_to_base_state(driver)
             
             # FIX: If search page fails, SKIP this user instead of stopping the whole session
             if not open_search_page(driver): 
@@ -222,6 +226,7 @@ def perform_follow_session(device, driver, targets_list, config, logger_func=Non
                 log_action(device_id, username, "ignored")
 
             state["current_index"] = i + 1
+            return_to_base_state(driver)
         except Exception as e:
             log(f"[bold red]CRITICAL ERROR processing user {username}: {e}[bold red]")
             log("[red]Attempting to recover and continue to next user...[/red]")
