@@ -395,6 +395,8 @@ def run_automation_for_device(device: dict, automation_type: str, payload: dict)
                 set_account_enabled(device_id, False)
         else:
             logger("[yellow]Session failed/incomplete. No cooldown set.[/yellow]")
+            set_account_enabled(device_id, False)
+            update_account_runtime_status(device_id, "ERROR_STOPPED")
 
         try:
             # Safe Release of Targets
