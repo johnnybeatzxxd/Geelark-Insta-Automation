@@ -353,8 +353,17 @@ def run_automation_for_device(device: dict, automation_type: str, payload: dict)
                 # U2 usually raises simple Exceptions or RequestsConnectionError on disconnect
                 err_msg = str(e)
                 
+                critical_errors = [
+                    "rpc", 
+                    "connection", 
+                    "closed", 
+                    "remote end", 
+                    "device offline", # <--- NEW
+                    "read timeout",   # <--- NEW
+                    "broken pipe"     # <--- GOOD TO ADD
+                ]
                 # Check for disconnect signals
-                is_disconnect = any(x in err_msg for x in ["Connection refused", "Connection reset", "RPC", "HTTPConnectionPool", "connection"])
+                is_disconnect = any(x in err_msg for x in critical_errors)
                 
                 if is_disconnect or isinstance(e, RequestsConnectionError):
                     heals_attempted += 1
@@ -368,6 +377,8 @@ def run_automation_for_device(device: dict, automation_type: str, payload: dict)
                         logger("Waiting 5s for socket to release...")
                         time.sleep(5)
                         logger("[green]Reconnecting...[/green]")
+                        if "device offline" in err_msg:
+                            launch_phone = True
                         continue 
                 
                 # If it's not a connection error, it's a logic crash. Bubble it up.
