@@ -22,7 +22,7 @@ def handle_common_popups(driver):
     """
     Checks for and closes common Instagram interruptions.
     """
-    dismiss_texts = ["Not now", "Cancel", "Deny", "Don't Allow", "No, thanks", "Later", "Dismiss"]
+    dismiss_texts = ["Not now", "Cancel", "Deny", "Don't Allow", "No, thanks", "Later", "Dismiss", "Got it", "No", "Leave"]
     clicked = False
     
     for text_val in dismiss_texts:
@@ -133,8 +133,20 @@ def open_page(driver, page_name_from_ui, navigation_timeout=5, verification_time
 
     except Exception as e:
         # If it's a network error, don't return False. RAISE it!
+        #
+        critical_errors = [
+            "rpc",
+            "connection",
+            "closed",
+            "remote end",
+            "device offline",
+            "read timeout",
+            "broken pipe"
+        ]
+        # Check for disconnect signals
+        is_disconnect = any(x in err_msg for x in critical_errors)
         err_str = str(e)
-        if any(x in err_str for x in ["Remote end", "Connection", "RPC", "closed"]):
+        if any(x in err_str for x in critical_errors):
             raise e 
         log(f"[red]Nav Error: {e}[/red]")
         return False

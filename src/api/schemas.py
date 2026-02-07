@@ -57,6 +57,7 @@ class WarmupChance(BaseModel):
     follow: int
     like: int
     comment: int
+    share: Optional[int] = 0
 
 class DayConfig(BaseModel):
     label: str
@@ -80,6 +81,7 @@ class SessionConfig(BaseModel):
     max_concurrent_sessions: int = 5
     
     warmup_strategy: dict[str, DayConfig] 
+    share_targets: Optional[List[str]] = []
 
 class AutomationStatus(BaseModel):
     status: str  # "ON" or "OFF"

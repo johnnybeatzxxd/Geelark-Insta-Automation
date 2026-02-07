@@ -236,7 +236,7 @@ DEFAULT_WARMUP_STRATEGY = {
     "reels": { "enabled": True, "minMinutes": 3, "maxMinutes": 6 },
     "limits": { "maxLikes": 3, "maxFollows": 2 },
     "speed": "slow",
-    "chance": { "follow": 30, "like": 20, "comment": 20 }
+    "chance": { "follow": 30, "like": 20, "comment": 20, "share": 0 }
   },
   "2": {
     "label": "Day 2 - The Observer",
@@ -244,7 +244,8 @@ DEFAULT_WARMUP_STRATEGY = {
     "reels": { "enabled": True, "minMinutes": 5, "maxMinutes": 8 },
     "limits": { "maxLikes": 5, "maxFollows": 3 },
     "speed": "slow",
-    "chance": { "follow": 20, "like": 30, "comment": 20 }
+    "chance": { "follow": 20, "like": 30, "comment": 20, "share": 30 }
+
   },
   "3": {
     "label": "Day 3 - Waking Up",
@@ -252,7 +253,7 @@ DEFAULT_WARMUP_STRATEGY = {
     "reels": { "enabled": True, "minMinutes": 5, "maxMinutes": 10 },
     "limits": { "maxLikes": 10, "maxFollows": 5 },
     "speed": "normal",
-    "chance": { "follow": 20, "like": 30, "comment": 30 }
+        "chance": { "follow": 20, "like": 30, "comment": 30, "share": 30 }
   },
   "4": {
     "label": "Day 4 - Casual User",
@@ -260,7 +261,7 @@ DEFAULT_WARMUP_STRATEGY = {
     "reels": { "enabled": True, "minMinutes": 10, "maxMinutes": 15 },
     "limits": { "maxLikes": 15, "maxFollows": 8 },
     "speed": "normal",
-    "chance": { "follow": 20, "like": 30, "comment": 30 }
+        "chance": { "follow": 20, "like": 30, "comment": 30, 'share': 30}
   },
   "5": {
     "label": "Day 5 - Active User",
@@ -268,7 +269,7 @@ DEFAULT_WARMUP_STRATEGY = {
     "reels": { "enabled": True, "minMinutes": 15, "maxMinutes": 20 },
     "limits": { "maxLikes": 30, "maxFollows": 8 },
     "speed": "normal",
-    "chance": { "follow": 20, "like": 25, "comment": 30 }
+        "chance": { "follow": 20, "like": 25, "comment": 30, "share": 30 }
   },
   "6": {
     "label": "Day 6 - The Addict",
@@ -276,7 +277,7 @@ DEFAULT_WARMUP_STRATEGY = {
     "reels": { "enabled": True, "minMinutes": 15, "maxMinutes": 26 },
     "limits": { "maxLikes": 30, "maxFollows": 10 },
     "speed": "fast",
-    "chance": { "follow": 20, "like": 35, "comment": 30 }
+        "chance": { "follow": 20, "like": 35, "comment": 30, "share": 30 }
   },
   "7": {
     "label": "Day 7 - Full Power",
@@ -284,7 +285,7 @@ DEFAULT_WARMUP_STRATEGY = {
     "reels": { "enabled": True, "minMinutes": 15, "maxMinutes": 25 },
     "limits": { "maxLikes": 30, "maxFollows": 12 },
     "speed": "fast",
-    "chance": { "follow": 40, "like": 40, "comment": 35 }
+        "chance": { "follow": 40, "like": 40, "comment": 35, "share": 30}
   }
 }
 
@@ -300,6 +301,7 @@ DEFAULT_CONFIG = {
     "continuous_mode": True,
     "max_concurrent_sessions": 5,
     # --- NEW NESTED CONFIG ---
+    "share_targets": [],
     "warmup_strategy": DEFAULT_WARMUP_STRATEGY 
 }
 

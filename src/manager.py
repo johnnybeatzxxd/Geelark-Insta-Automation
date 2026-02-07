@@ -337,6 +337,7 @@ def manager_loop():
                     
                     if day_config:
                         payload['day_config'] = day_config
+                        payload['day_config']['share_targets'] = SESSION_CONFIG.get('share_targets', [])
                         automation_type = 'warmup'
                         # Logging for Warmup
                         log(f"SUCCESS: Launching {acc.profile_name} in Warmup Mode (Day {day_key}).", "bold green")

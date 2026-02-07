@@ -46,6 +46,106 @@ def human_sleep(min_seconds=1.0, max_seconds=3.0, speed_mode="normal"):
     duration = random.uniform(min_seconds, max_seconds) * factor
     time.sleep(duration)
 
+def action_share_post(driver, share_targets=None):
+    """
+    Shares post via DM (specific user) or Copy Link.
+    Includes robust 'Back' logic to return to feed.
+    """
+    try:
+        # 1. Find Share Button
+        share_btn = driver(description="Send post")
+        if not share_btn.exists:
+            share_btn = driver(resourceId="com.instagram.android:id/button_send")
+            
+        if not share_btn.exists:
+            log("[dim]Share button not found. Skipping.[/dim]")
+            return False
+
+        log("[blue]   * Action: Clicking Share...[/blue]")
+        share_btn.click()
+        time.sleep(1.5)
+
+        # 2. Setup Target
+        target_user = None
+        if share_targets and len(share_targets) > 0:
+            target_user = random.choice(share_targets)
+
+        # --- PATH A: DM SHARE ---
+        if target_user:
+            log(f"[cyan]     -> Sharing to DM: {target_user}[/cyan]")
+            
+            # A1. Find Search Box
+            search_box = driver(resourceId="com.instagram.android:id/search_edit_text")
+            if not search_box.exists:
+                log("[red]Search box missing in share sheet.[/red]")
+                return False # Finally block will handle backing out
+            
+            # A2. Type User
+            search_box.click()
+            time.sleep(0.5)
+            search_box.set_text(target_user)
+            time.sleep(2.5) # Wait for results
+            
+            # A3. Find Result (Robust Strategy)
+            # Strategy 1: Look for exact handle match in secondary text (the username)
+            user_row = driver(resourceId="com.instagram.android:id/row_user_secondary_name", text=target_user)
+            
+            # Strategy 2: Look for partial match in primary text (display name)
+            if not user_row.exists:
+                user_row = driver(resourceId="com.instagram.android:id/row_user_primary_name", textContains=target_user)
+            
+            # Strategy 3: Just pick the first result if we are confident (Optional, keeping it safe for now)
+            
+            if user_row.exists:
+                user_row.click()
+                log(f"[green]     -> Selected user: {target_user}[/green]")
+                time.sleep(1)
+                
+                # A4. Click Send
+                # The "Send" button appears at the bottom after selection
+                send_btn = driver(text="Send")
+                if not send_btn.exists:
+                    send_btn = driver(resourceId="com.instagram.android:id/direct_send_button")
+                
+                if send_btn.exists:
+                    send_btn.click()
+                    log("[bold green]     -> SENT![/bold green]")
+                    return True
+                else:
+                    log("[yellow]Send button did not appear.[/yellow]")
+            else:
+                log(f"[yellow]User '{target_user}' not found in results.[/yellow]")
+
+        # --- PATH B: COPY LINK ---
+        else:
+            log("[cyan]     -> Action: Copy Link[/cyan]")
+            # U2 Selector for "Copy link" text
+            copy_btn = driver(text="Copy link")
+            if copy_btn.exists:
+                copy_btn.click()
+                log("[green]     -> Link Copied.[/green]")
+                # Usually copying link closes the menu automatically, but we check in finally
+                return True
+            else:
+                log("[yellow]Copy link button not found.[/yellow]")
+
+        return False
+
+    except Exception as e:
+        log(f"[red]Share action failed: {e}[/red]")
+        return False
+
+    finally:
+        # --- CRITICAL: RETURN TO FEED ---
+        # Keep pressing back until we see the Tab Bar (Home Feed)
+        # Max 3 tries to avoid infinite loops
+        for _ in range(3):
+            if driver(resourceId=ID_TAB_BAR).exists:
+                break
+            # Check if we are still on search input (Keyboard might be up)
+            driver.press("back")
+            time.sleep(1)
+
 def is_ad_or_suggestion(element_info):
     """
     Checks if an element is an Ad based on content-desc.
@@ -321,6 +421,7 @@ def perform_warmup(driver, config, logger_func=None, state=None):
     limits = config.get('limits', {})
     chances = config.get('chance', {})
     speed = config.get('speed', 'normal')
+    share_list = config.get('share_targets', []) 
     
     stats = {"likes": 0, "follows": 0, "opened": 0}
 
@@ -349,12 +450,19 @@ def perform_warmup(driver, config, logger_func=None, state=None):
             interact_with_suggestions_if_present(driver, limit_follows, stats['follows'])
 
             # 3. DECISION: Like Feed Post
-            if chance(chances.get('like', 1)):
+            if chance(chances.get('like',1)):
                 if stats["likes"] < limits.get('maxLikes', 5):
                     if action_like_post(driver):
                         stats["likes"] += 1
                         human_sleep(0.5, 1.5, speed)
 
+            # 5. DECISION: Share Post (New)
+            if chance(chances.get('share', 0)):
+                if action_share_post(driver, share_targets=share_list):
+                    stats["shares"] = stats.get("shares", 0) + 1
+                    human_sleep(1.5, 3.0, speed)
+            
+            # Scroll...
             # 4. DECISION: Follow Feed Post
             if chance(chances.get('follow', 0)):
                 if stats["follows"] < limits.get('maxFollows', 3):
