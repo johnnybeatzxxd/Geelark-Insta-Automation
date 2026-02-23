@@ -23,6 +23,7 @@ from selenium.common.exceptions import WebDriverException, InvalidSessionIdExcep
 import uiautomator2 as u2
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from selenium.common.exceptions import WebDriverException
+
 # We removed the specific uiautomator2.exceptions import to prevent the crash
 # Modules
 from helper import open_page
@@ -43,17 +44,22 @@ import sys
 # Global Flag
 IS_RUNNING = True
 
+
 def signal_handler(signum, frame):
     """
     Catches the Manager's 'proc.terminate()' signal.
     """
     global IS_RUNNING
-    print(f"\n[bold yellow]Stop signal received (Signal {signum}). Setting IS_RUNNING=False...[/bold yellow]")
+    print(
+        f"\n[bold yellow]Stop signal received (Signal {signum}). Setting IS_RUNNING=False...[/bold yellow]"
+    )
     IS_RUNNING = False
+
 
 # Register the signals immediately
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
+
 
 def open_phones_manually():
     """
@@ -61,14 +67,14 @@ def open_phones_manually():
     ensuring all phones are stopped on exit.
     """
     console.print("\n[bold green]Manual Phone Session Manager[/bold green]")
-    
+
     remote_phones = get_available_phones(adb_enabled=False)
     if not remote_phones:
         rprint("[red]No remote phones available.[/red]")
         return
 
     display_phones(remote_phones)
-    
+
     # <<< FIX 1: The prompt text is now shorter and mentions 'all' >>>
     selection_str = Prompt.ask(
         "Enter numbers separated by space to open (e.g. 1 3 4), 'all', or press Enter to cancel"
@@ -80,25 +86,29 @@ def open_phones_manually():
 
     # --- Initial Selection Processing ---
     ids_to_start = []
-    selected_phone_map = {} 
+    selected_phone_map = {}
 
     # <<< FIX 2: Added logic to handle the 'all' keyword >>>
-    if selection_str.strip().lower() == 'all':
+    if selection_str.strip().lower() == "all":
         rprint("[cyan]Selecting all available phones...[/cyan]")
-        ids_to_start = [phone['id'] for phone in remote_phones]
+        ids_to_start = [phone["id"] for phone in remote_phones]
         # Map all phones by their original index number (as a string)
-        selected_phone_map = {str(i + 1): phone for i, phone in enumerate(remote_phones)}
+        selected_phone_map = {
+            str(i + 1): phone for i, phone in enumerate(remote_phones)
+        }
     else:
         # This is the original logic for processing individual numbers
         user_choices = selection_str.strip().split()
         for choice in user_choices:
             if not choice.isdigit() or not (1 <= int(choice) <= len(remote_phones)):
-                rprint(f"[yellow]Warning: Invalid choice '{choice}'. Skipping.[/yellow]")
+                rprint(
+                    f"[yellow]Warning: Invalid choice '{choice}'. Skipping.[/yellow]"
+                )
                 continue
-            
+
             choice_idx = int(choice) - 1
             phone_data = remote_phones[choice_idx]
-            ids_to_start.append(phone_data['id'])
+            ids_to_start.append(phone_data["id"])
             selected_phone_map[choice] = phone_data
 
     if not ids_to_start:
@@ -111,17 +121,23 @@ def open_phones_manually():
     try:
         rprint(f"\n[cyan]Attempting to start {len(ids_to_start)} phone(s)...[/cyan]")
         response = start_phone(ids_to_start)
-        
+
         # Check the API response to see which phones ACTUALLY started
         if response and response.get("code") == 0:
             success_details = response.get("data", {}).get("successDetails", [])
-            active_phone_ids = [phone['id'] for phone in success_details]
+            active_phone_ids = [phone["id"] for phone in success_details]
             if not active_phone_ids:
-                 rprint("[red]API call succeeded, but no phones were actually started. Check phone status on the platform.[/red]")
-                 return
-            rprint("[bold green]Success! The following phone screens should have opened:[/bold green]")
+                rprint(
+                    "[red]API call succeeded, but no phones were actually started. Check phone status on the platform.[/red]"
+                )
+                return
+            rprint(
+                "[bold green]Success! The following phone screens should have opened:[/bold green]"
+            )
         else:
-            rprint("[bold red]Failed to start phones. Please check the API response above.[/bold red]")
+            rprint(
+                "[bold red]Failed to start phones. Please check the API response above.[/bold red]"
+            )
             return
 
         # This is the interactive shutdown loop
@@ -131,12 +147,14 @@ def open_phones_manually():
             active_phones_table.add_column("No.", style="cyan")
             active_phones_table.add_column("Name", style="green")
             active_phones_table.add_column("ID", style="yellow")
-            
+
             # Find the original menu number for each active phone
             for original_number, phone_data in selected_phone_map.items():
-                if phone_data['id'] in active_phone_ids:
-                    active_phones_table.add_row(original_number, phone_data['name'], phone_data['id'])
-            
+                if phone_data["id"] in active_phone_ids:
+                    active_phones_table.add_row(
+                        original_number, phone_data["name"], phone_data["id"]
+                    )
+
             console.print(active_phones_table)
 
             shutdown_choice_str = Prompt.ask(
@@ -144,76 +162,93 @@ def open_phones_manually():
             )
 
             ids_to_stop = []
-            if shutdown_choice_str.strip().lower() == 'all':
-                ids_to_stop = list(active_phone_ids) # Make a copy
+            if shutdown_choice_str.strip().lower() == "all":
+                ids_to_stop = list(active_phone_ids)  # Make a copy
             else:
                 for choice in shutdown_choice_str.strip().split():
                     # Check if the chosen number corresponds to a currently active phone
-                    if choice in selected_phone_map and selected_phone_map[choice]['id'] in active_phone_ids:
-                        ids_to_stop.append(selected_phone_map[choice]['id'])
+                    if (
+                        choice in selected_phone_map
+                        and selected_phone_map[choice]["id"] in active_phone_ids
+                    ):
+                        ids_to_stop.append(selected_phone_map[choice]["id"])
                     else:
-                        rprint(f"[yellow]Warning: '{choice}' is not a valid active phone number. Skipping.[/yellow]")
+                        rprint(
+                            f"[yellow]Warning: '{choice}' is not a valid active phone number. Skipping.[/yellow]"
+                        )
 
             if ids_to_stop:
-                rprint(f"\n[cyan]Sending stop command for {len(ids_to_stop)} phone(s)...[/cyan]")
+                rprint(
+                    f"\n[cyan]Sending stop command for {len(ids_to_stop)} phone(s)...[/cyan]"
+                )
                 stop_phone(ids_to_stop)
                 # Remove the stopped phones from our active list
-                active_phone_ids = [pid for pid in active_phone_ids if pid not in ids_to_stop]
+                active_phone_ids = [
+                    pid for pid in active_phone_ids if pid not in ids_to_stop
+                ]
 
-        rprint("\n[bold green]All manually opened phones have been shut down.[/bold green]")
+        rprint(
+            "\n[bold green]All manually opened phones have been shut down.[/bold green]"
+        )
 
     finally:
         # This block is GUARANTEED to run on any exit, including Ctrl+C
         if active_phone_ids:
-            rprint("\n[bold yellow]Exiting session. Ensuring all remaining active phones are stopped...[/bold yellow]")
+            rprint(
+                "\n[bold yellow]Exiting session. Ensuring all remaining active phones are stopped...[/bold yellow]"
+            )
             try:
                 stop_phone(active_phone_ids)
                 rprint("[green]Cleanup complete. All phones stopped.[/green]")
             except Exception as e:
-                rprint(f"[bold red]CRITICAL: Cleanup failed. Could not stop phones {active_phone_ids}. Please check your provider's dashboard manually! Error: {e}[/bold red]")
+                rprint(
+                    f"[bold red]CRITICAL: Cleanup failed. Could not stop phones {active_phone_ids}. Please check your provider's dashboard manually! Error: {e}[/bold red]"
+                )
 
-def create_device_logger(device_id,device_name: str):
+
+def create_device_logger(device_id, device_name: str):
     """Creates a thread-safe logger for a specific device."""
     prefix_str = f"[bold cyan][{device_name}][/bold cyan]"
-    
-    # We need the device_id to log to DB. 
+
+    # We need the device_id to log to DB.
     # Since this function only takes device_name, we'll try to look it up or just use name as ID if needed.
     # Ideally, we should pass device_id to this function too.
-    
+
     def device_specific_log(message: str, *args, **kwargs):
         # 1. Print to Terminal (Rich)
         rprint(f"{prefix_str} {message}", *args, **kwargs)
-        
+
         # 2. Save to Database (for API/Frontend)
         try:
             # Determine level based on message content (Robust Color Detection)
-            level = 'INFO'
+            level = "INFO"
             msg_lower = message.lower()
-            
+
             # Check for color tags like [red], [bold red], [dim red]
-            if 'red]' in msg_lower or 'error' in msg_lower:
-                level = 'ERROR'
-            elif 'green]' in msg_lower or 'success' in msg_lower:
-                level = 'SUCCESS'
-            elif 'yellow]' in msg_lower or 'warning' in msg_lower:
-                level = 'WARNING'
-            
+            if "red]" in msg_lower or "error" in msg_lower:
+                level = "ERROR"
+            elif "green]" in msg_lower or "success" in msg_lower:
+                level = "SUCCESS"
+            elif "yellow]" in msg_lower or "warning" in msg_lower:
+                level = "WARNING"
+
             # Strip Rich tags for clean DB storage
-            clean_msg = re.sub(r'\[.*?\]', '', message)
-            
+            clean_msg = re.sub(r"\[.*?\]", "", message)
+
             # We use device_name as device_id here because that's what we have.
             # In a perfect world, we'd refactor to pass device_id too.
             DeviceLog.create(
-                device_id=device_id, # Using name as ID for now to avoid breaking signature
+                device_id=device_id,  # Using name as ID for now to avoid breaking signature
                 device_name=device_name,
                 message=clean_msg.strip(),
-                level=level
+                level=level,
             )
         except Exception as e:
             # Never let logging crash the worker
             print(f"DB Log Error: {e}")
-            
+
     return device_specific_log
+
 
 def cleanup_uiautomator_on_device(serial, log=None):
     """
@@ -225,42 +260,54 @@ def cleanup_uiautomator_on_device(serial, log=None):
         logger(f"[dim]Cleaning up uiautomator on {serial}...[/dim]")
         # Command to kill various forms of uiautomator services
         # 1. Kill the uiautomator binary if running
-        subprocess.run(["adb", "-s", serial, "shell", "pkill", "uiautomator"], capture_output=True)
+        subprocess.run(
+            ["adb", "-s", serial, "shell", "pkill", "uiautomator"], capture_output=True
+        )
         # 2. Kill the u2 stub if legacy/orphaned
-        subprocess.run(["adb", "-s", serial, "shell", "pkill", "-f", "com.github.uiautomator"], capture_output=True)
+        subprocess.run(
+            ["adb", "-s", serial, "shell", "pkill", "-f", "com.github.uiautomator"],
+            capture_output=True,
+        )
         # 3. Kill the wetest/uia2 server specifically (found in user logs)
-        subprocess.run(["adb", "-s", serial, "shell", "pkill", "-f", "com.wetest.uia2"], capture_output=True)
-        
-        time.sleep(1.5) # Give the system a moment to release the service
+        subprocess.run(
+            ["adb", "-s", serial, "shell", "pkill", "-f", "com.wetest.uia2"],
+            capture_output=True,
+        )
+
+        time.sleep(1.5)  # Give the system a moment to release the service
     except Exception as e:
         logger(f"[dim]Cleanup notice: {e}[/dim]")
+
 
 def get_driver(device, log=None, launch_phone=True):
     try:
         log(f"[green]Waiting the phone to start ...[/green]")
-        
+
         # 1. Connect to Device
         if device["type"] == "local":
-            connection_info = { "ip": device["id"].split(":")[0], "port": device["id"].split(":")[1] }
+            connection_info = {
+                "ip": device["id"].split(":")[0],
+                "port": device["id"].split(":")[1],
+            }
         else:
-            connection_info = connect_to_phone(device['id'],launch_phone=launch_phone)
+            connection_info = connect_to_phone(device["id"], launch_phone=launch_phone)
             log(f"[green]Phone Started.[/green]")
         if not connection_info:
             log("[red]Failed to get connection info. Terminating.[/red]")
             return
 
         serial = f"{connection_info['ip']}:{connection_info['port']}"
-        
+
         # --- FIX: Cleanup before connection ---
         cleanup_uiautomator_on_device(serial, log)
-        
+
         log(f"[yellow]Connecting to {serial}...[/yellow]")
         d = u2.connect(serial)
 
         # Optional: Set global settings for speed
-        d.settings['operation_delay'] = (0.1, 0.1) # Faster clicks
-        d.settings['wait_timeout'] = 10.0 # Default wait
-        
+        d.settings["operation_delay"] = (0.1, 0.1)  # Faster clicks
+        d.settings["wait_timeout"] = 10.0  # Default wait
+
         log(f"[green]U2 Connected! Info: {d.info.get('model')}[/green]")
         return d
 
@@ -270,36 +317,35 @@ def get_driver(device, log=None, launch_phone=True):
 
 
 def run_automation_for_device(device: dict, automation_type: str, payload: dict):
-    device_name = device.get('name', 'Unknown')
-    device_id = device.get('id')
+    device_name = device.get("name", "Unknown")
+    device_id = device.get("id")
     logger = create_device_logger(device_id, device_name)
-    
+
     driver = None
-    targets_to_process = payload.get('targets', [])
+    targets_to_process = payload.get("targets", [])
     session_completed = False
-    
+
     # --- RESILIENCE CONFIG ---
     MAX_HEALS = 3
     heals_attempted = 0
 
     warmup_session_state = {
-        "phase": "feed",       # 'feed' or 'reels'
-        "current_scroll": 0,   # How many scrolls done so far
-        "target_scrolls": None # Set once and kept
+        "phase": "feed",  # 'feed' or 'reels'
+        "current_scroll": 0,  # How many scrolls done so far
+        "target_scrolls": None,  # Set once and kept
     }
 
     follow_session_state = {
-        "current_index": 0,      # Which username in the list are we on?
-        "successful_follows": 0, # Total successes for this session
-        "phase": "follow"        # Helpful for debugging
+        "current_index": 0,  # Which username in the list are we on?
+        "successful_follows": 0,  # Total successes for this session
+        "phase": "follow",  # Helpful for debugging
     }
-    
+
     try:
         logger(f"[yellow]Worker activated for {automation_type}.[/yellow]")
         launch_phone = True
-        
-        while heals_attempted <= MAX_HEALS:
 
+        while heals_attempted <= MAX_HEALS:
             # 1. CHECK RUN FLAG AT START OF LOOP
             if not IS_RUNNING:
                 logger("[yellow]Stop signal detected. Exiting loop.[/yellow]")
@@ -309,7 +355,7 @@ def run_automation_for_device(device: dict, automation_type: str, payload: dict)
                 # If we are healing, driver is None, so get_driver will spin up a fresh one
                 if driver is None:
                     driver = get_driver(device, logger, launch_phone=launch_phone)
-                
+
                 if not driver:
                     # If get_driver fails, throw an exception to trigger the retry logic below
                     raise RequestsConnectionError("Initial Driver Connect Failed")
@@ -319,13 +365,20 @@ def run_automation_for_device(device: dict, automation_type: str, payload: dict)
 
                 # 2. PERFORM TASKS
                 if automation_type == "warmup":
-                    day_config = payload.get('day_config')
+                    day_config = payload.get("day_config")
                     if open_page(driver, "Home", logger_func=logger):
-                        perform_warmup(driver, day_config, logger_func=logger, state=warmup_session_state)
+                        perform_warmup(
+                            driver,
+                            day_config,
+                            logger_func=logger,
+                            state=warmup_session_state,
+                        )
                         session_completed = True
-                        break 
+                        break
                     else:
-                        logger("[yellow]Navigation failed (Logic). Retrying current heal cycle...[/yellow]")
+                        logger(
+                            "[yellow]Navigation failed (Logic). Retrying current heal cycle...[/yellow]"
+                        )
                         heals_attempted += 1
                         time.sleep(2)
                         continue
@@ -334,43 +387,61 @@ def run_automation_for_device(device: dict, automation_type: str, payload: dict)
                     if open_page(driver, "Search", logger_func=logger):
                         perform_follow_session(
                             device=device,
-                            driver=driver, 
-                            targets_list=targets_to_process, 
-                            config=payload['config'],
+                            driver=driver,
+                            targets_list=targets_to_process,
+                            config=payload["config"],
                             logger_func=logger,
                             state=follow_session_state,
                         )
                         session_completed = True
-                        break 
+                        break
                     else:
                         raise WebDriverException("Search Nav Failure")
-            
+
             # 3. SAFE AUTO-HEAL (U2 VERSION)
             except (RequestsConnectionError, Exception) as e:
-                
-                if not IS_RUNNING: break
+                if not IS_RUNNING:
+                    break
 
                 # U2 usually raises simple Exceptions or RequestsConnectionError on disconnect
                 err_msg = str(e)
-                
+
+                if "ACCOUNT_BANNED" in err_msg:
+                    logger(
+                        "[bold red]Stopping worker: Account is banned/flagged.[/bold red]"
+                    )
+                    # 1. Update DB Status to Banned
+                    from database import Account
+
+                    Account.update(
+                        runtime_status="BANNED", status="banned", is_enabled=False
+                    ).where(Account.device_id == device_id).execute()
+
+                    # 2. Set failure flag so finally block doesn't set a cooldown
+                    session_completed = False
+                    # 3. Force exit the heal loop
+                    break
+
                 critical_errors = [
-                    "rpc", 
-                    "connection", 
-                    "closed", 
-                    "remote end", 
-                    "device offline", # <--- NEW
-                    "read timeout",   # <--- NEW
-                    "broken pipe"     # <--- GOOD TO ADD
+                    "rpc",
+                    "connection",
+                    "closed",
+                    "remote end",
+                    "device offline",  # <--- NEW
+                    "read timeout",  # <--- NEW
+                    "broken pipe",  # <--- GOOD TO ADD
                 ]
                 # Check for disconnect signals
                 is_disconnect = any(x in err_msg for x in critical_errors)
-                
+
                 if is_disconnect or isinstance(e, RequestsConnectionError):
                     heals_attempted += 1
-                    
+
                     if heals_attempted <= MAX_HEALS:
-                        logger(f"[bold red]CONNECTION DROP DETECTED ({heals_attempted}/{MAX_HEALS})[/bold red]")
-                        
+                        logger(
+                            f"[bold red]CONNECTION DROP DETECTED ({heals_attempted}/{MAX_HEALS})[/bold red]"
+                        )
+
                         # No need to "quit" U2 driver, just null it
                         driver = None
                         launch_phone = False
@@ -379,27 +450,33 @@ def run_automation_for_device(device: dict, automation_type: str, payload: dict)
                         logger("[green]Reconnecting...[/green]")
                         if "device offline" in err_msg:
                             launch_phone = True
-                        continue 
-                
+                        continue
+
                 # If it's not a connection error, it's a logic crash. Bubble it up.
                 raise e
     except Exception as e:
         session_completed = False
         logger(f"[bold red]CRITICAL WORKER FAILURE: {e}[/bold red]")
-    
+
     finally:
         # --- CLEANUP (Same as before) ---
-        config = payload.get('config', {})
-        continuous_mode = config.get('continuous_mode', True)
-        cooldown_hours = config.get('cooldown_hours')         
+        config = payload.get("config", {})
+        continuous_mode = config.get("continuous_mode", True)
+        cooldown_hours = config.get("cooldown_hours")
 
         if session_completed:
             if continuous_mode:
                 if cooldown_hours is not None:
-                    cooldown_end = set_account_cooldown(device_id, float(cooldown_hours))
-                    logger(f"[cyan]Session Success. Cooldown set for {cooldown_hours}h.[/cyan]")
+                    cooldown_end = set_account_cooldown(
+                        device_id, float(cooldown_hours)
+                    )
+                    logger(
+                        f"[cyan]Session Success. Cooldown set for {cooldown_hours}h.[/cyan]"
+                    )
                 else:
-                    logger("[red]Config Error: Cooldown missing. Defaulting to 1h.[/red]")
+                    logger(
+                        "[red]Config Error: Cooldown missing. Defaulting to 1h.[/red]"
+                    )
                     set_account_cooldown(device_id, 1.0)
             else:
                 logger("[cyan]Session Success. One-Off Mode. Disabling account.[/cyan]")
@@ -417,35 +494,48 @@ def run_automation_for_device(device: dict, automation_type: str, payload: dict)
 
         logger("Shutting down driver and phone...")
         if driver:
-            try: driver.quit()
-            except: pass
-        
+            try:
+                driver.quit()
+            except:
+                pass
+
         if device.get("type") != "local":
-            try: 
+            try:
                 stop_phone([device_id])
-                Account.update(stream_url=None).where(Account.device_id == device_id).execute()
-            except Exception as e: 
+                Account.update(stream_url=None).where(
+                    Account.device_id == device_id
+                ).execute()
+            except Exception as e:
                 logger(f"[red]Error stopping phone: {e}[/red]")
-        
+
         logger("[dim]Worker process terminated.[/dim]")
 
-def start_appium_service_instance(host: str, port: int, system_port: int, log: Callable) -> AppiumService:
+
+def start_appium_service_instance(
+    host: str, port: int, system_port: int, log: Callable
+) -> AppiumService:
     """Starts a unique Appium server instance on a specific port."""
     service = AppiumService()
-    log(f"[yellow]Attempting to start Appium on {host}:{port} for system port {system_port}...[/yellow]")
+    log(
+        f"[yellow]Attempting to start Appium on {host}:{port} for system port {system_port}...[/yellow]"
+    )
     try:
         service.start(
             args=[
-                '--address', host,
-                '--port', str(port),
-                '--session-override',
-                '--log-timestamp',
-                '--log-no-colors',
+                "--address",
+                host,
+                "--port",
+                str(port),
+                "--session-override",
+                "--log-timestamp",
+                "--log-no-colors",
                 # This is crucial for parallel Android execution
-                '--base-path', f'/wd/hub',
-                '--default-capabilities', f'{{"systemPort": {system_port}}}'
+                "--base-path",
+                f"/wd/hub",
+                "--default-capabilities",
+                f'{{"systemPort": {system_port}}}',
             ],
-            timeout_ms=30000
+            timeout_ms=30000,
         )
         log(f"[green]Appium server started for device on port {port}[/green]")
         return service
@@ -453,9 +543,12 @@ def start_appium_service_instance(host: str, port: int, system_port: int, log: C
         log(f"[red]Failed to start Appium server on port {port}: {e}[/red]")
         # Check if error message indicates it's already running
         if "main process already died" in str(e) or "Address already in use" in str(e):
-             log(f"[yellow]Server on port {port} may already be running. Will attempt to connect.[/yellow]")
-             return None # Indicate that we should just try to connect
+            log(
+                f"[yellow]Server on port {port} may already be running. Will attempt to connect.[/yellow]"
+            )
+            return None  # Indicate that we should just try to connect
         raise RuntimeError(f"Could not start Appium server on port {port}.")
+
 
 def handle_update_popup(driver, timeout=3) -> bool:
     """
@@ -478,9 +571,7 @@ def handle_update_popup(driver, timeout=3) -> bool:
 
         # Now find the 'Maybe later' button and click it
         maybe_later_btn = WebDriverWait(driver, timeout).until(
-            EC.element_to_be_clickable(
-                (AppiumBy.ID, "com.bumble.app:id/button_later")
-            )
+            EC.element_to_be_clickable((AppiumBy.ID, "com.bumble.app:id/button_later"))
         )
 
         delay = random.uniform(0.2, 0.4)
@@ -495,13 +586,14 @@ def handle_update_popup(driver, timeout=3) -> bool:
         log(f"[red]Error handling update popup: {e}[/red]")
         return False
 
+
 def get_device_info(connection_address: str):
     """
     Get device platform version and other info from ADB.
-    
+
     Args:
         connection_address (str): The IP:port address of the connected device
-        
+
     Returns:
         Tuple[str, str]: (platform_version, device_name)
     """
@@ -509,30 +601,41 @@ def get_device_info(connection_address: str):
         # Get device properties
         cmd = ["adb", "-s", connection_address, "shell", "getprop"]
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        
+
         # Extract platform version
-        version_match = re.search(r'\[ro\.build\.version\.release\]:\s*\[(.*?)\]', result.stdout)
-        platform_version = version_match.group(1) if version_match else "12"  # Default to 12 if not found
-        
+        version_match = re.search(
+            r"\[ro\.build\.version\.release\]:\s*\[(.*?)\]", result.stdout
+        )
+        platform_version = (
+            version_match.group(1) if version_match else "12"
+        )  # Default to 12 if not found
+
         return platform_version, connection_address
-        
+
     except subprocess.CalledProcessError as e:
-        rprint(f"[red]Failed to get device info: {e.stderr if isinstance(e.stderr, str) else e.stderr.decode()}[/red]")
+        rprint(
+            f"[red]Failed to get device info: {e.stderr if isinstance(e.stderr, str) else e.stderr.decode()}[/red]"
+        )
         return "12", connection_address  # Default values if command fails
     except Exception as e:
         rprint(f"[red]Error getting device info: {str(e)}[/red]")
         return "12", connection_address  # Default values if command fails
+
 
 def manage_adb_server(action: str = "kill") -> bool:
     """Manage the ADB server."""
     try:
         if action == "kill":
             rprint("[yellow]Killing ADB server...[/yellow]")
-            subprocess.run(["adb", "kill-server"], check=True, capture_output=True, text=True)
+            subprocess.run(
+                ["adb", "kill-server"], check=True, capture_output=True, text=True
+            )
             rprint("[green]ADB server killed successfully[/green]")
         elif action == "start":
             rprint("[yellow]Starting ADB server...[/yellow]")
-            subprocess.run(["adb", "start-server"], check=True, capture_output=True, text=True)
+            subprocess.run(
+                ["adb", "start-server"], check=True, capture_output=True, text=True
+            )
             rprint("[green]ADB server started successfully[/green]")
         return True
     except subprocess.CalledProcessError as e:
@@ -542,22 +645,25 @@ def manage_adb_server(action: str = "kill") -> bool:
         rprint(f"[red]Error managing ADB server: {str(e)}[/red]")
         return False
 
-def setup_appium_driver(connection_info: dict, server_url: str, system_port: int) -> webdriver.Remote:
+
+def setup_appium_driver(
+    connection_info: dict, server_url: str, system_port: int
+) -> webdriver.Remote:
     """Set up and return an Appium WebDriver instance for a specific device."""
     connection_address = f"{connection_info['ip']}:{connection_info['port']}"
-    platform_version, device_name = "15", connection_address # Simplified for example
+    platform_version, device_name = "15", connection_address  # Simplified for example
 
     options = UiAutomator2Options()
     options.platform_name = "Android"
     options.device_name = device_name
-    options.udid = device_name # Explicitly set UDID
+    options.udid = device_name  # Explicitly set UDID
     options.automation_name = "UiAutomator2"
-    options.set_capability('appium:uiautomator2ServerInstallTimeout', 900000)
-    options.set_capability('appium:skipDeviceInitialization', True)
-    options.set_capability('appium:noSign', True)
-    options.set_capability('appium:ignoreHiddenApiPolicyError', True)
+    options.set_capability("appium:uiautomator2ServerInstallTimeout", 900000)
+    options.set_capability("appium:skipDeviceInitialization", True)
+    options.set_capability("appium:noSign", True)
+    options.set_capability("appium:ignoreHiddenApiPolicyError", True)
     # options.set_capability('appium:skipServerInstallation', True)
-    options.set_capability('appium:adbExecTimeout', 60000)
+    options.set_capability("appium:adbExecTimeout", 60000)
     options.app_package = "com.instagram.android"
     options.app_activity = "com.instagram.mainactivity.InstagramMainActivity"
     options.no_reset = True
@@ -569,28 +675,36 @@ def setup_appium_driver(connection_info: dict, server_url: str, system_port: int
     try:
         rprint(f"[{device_name}] Connecting to Appium at {server_url}...")
         driver = webdriver.Remote(server_url, options=options)
-        time.sleep(5) # Wait for app to stabilize
+        time.sleep(5)  # Wait for app to stabilize
         rprint(f"[{device_name}] Driver initialized successfully.")
         return driver
     except Exception as e:
-        rprint(f"[{device_name}] [red]Failed to initialize Appium driver: {str(e)}[/red]")
+        rprint(
+            f"[{device_name}] [red]Failed to initialize Appium driver: {str(e)}[/red]"
+        )
         return None
+
 
 def signal_handler(signum, frame):
     """
     Handle interruption signals gracefully.
     The 'finally' blocks in the running functions are responsible for the actual cleanup.
     """
-    rprint("\n\n[bold yellow]Interruption detected! Asking the running process to exit gracefully...[/bold yellow]")
+    rprint(
+        "\n\n[bold yellow]Interruption detected! Asking the running process to exit gracefully...[/bold yellow]"
+    )
     sys.exit(0)
+
 
 # Register signal handlers
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
+
 def clear_screen():
     """Clear the terminal screen."""
-    os.system('cls' if os.name == 'nt' else 'clear')
+    os.system("cls" if os.name == "nt" else "clear")
+
 
 def display_phones(phones: List[Dict]):
     """Display phones in a formatted table."""
@@ -606,18 +720,19 @@ def display_phones(phones: List[Dict]):
         status_color = "green" if phone["status"] == "active" else "red"
         device_type = phone.get("type", "remote")
         type_color = "blue" if device_type == "local" else "cyan"
-        
+
         table.add_row(
             str(idx),
             phone["name"],
             f"[{status_color}]{phone['status']}[/{status_color}]",
             phone["brand"].title(),
             phone["model"],
-            f"[{type_color}]{device_type}[/{type_color}]"
+            f"[{type_color}]{device_type}[/{type_color}]",
         )
-    
+
     console.print(table)
     return phones
+
 
 def get_automation_type():
     """Get the type of automation to perform."""
@@ -625,14 +740,11 @@ def get_automation_type():
     console.print("1. Swiping")
     console.print("2. Handle Matches")
     console.print("3. Auto")
-    
+
     choice = Prompt.ask("Select automation type", choices=["1", "2", "3"])
-    automation_types = {
-        "1": "swiping",
-        "2": "handle_matches",
-        "3": "auto"
-    }
+    automation_types = {"1": "swiping", "2": "handle_matches", "3": "auto"}
     return automation_types[choice]
+
 
 def get_all_available_devices() -> List[Dict]:
     """Get all available devices (both remote and local)."""
@@ -640,60 +752,63 @@ def get_all_available_devices() -> List[Dict]:
     remote_devices = get_available_phones()
     for device in remote_devices:
         device["type"] = "remote"
-    
+
     # Get local devices
     # local_devices = get_local_devices()
-    
+
     # Combine both lists
-    return remote_devices 
+    return remote_devices
+
 
 def start_automation_all():
     """
     Main entry point for multi-device automation.
     """
     # 1. Get Devices
-    devices = get_all_available_devices() # Ensure this function is defined/imported
+    devices = get_all_available_devices()  # Ensure this function is defined/imported
     if not devices:
         rprint("[red]No devices found![/red]")
         return
 
-    display_phones(devices) # Ensure display_phones is defined/imported
-    
+    display_phones(devices)  # Ensure display_phones is defined/imported
+
     # 2. User Selection
     selection_str = Prompt.ask("Enter numbers (e.g. 1 3), 'all', or Enter to cancel")
-    if not selection_str.strip(): return
+    if not selection_str.strip():
+        return
 
     selected_devices = []
-    if selection_str.strip().lower() == 'all':
+    if selection_str.strip().lower() == "all":
         selected_devices = devices
     else:
         for choice in selection_str.strip().split():
             if choice.isdigit() and 1 <= int(choice) <= len(devices):
                 selected_devices.append(devices[int(choice) - 1])
 
-    if not selected_devices: return
+    if not selected_devices:
+        return
 
     # 3. Configuration
     console.print("\n[bold]Select Automation Mode:[/bold]")
     console.print("1. Daily Warmup (Feed + Reels)")
     console.print("2. Follow/Unfollow")
-    
+
     mode_choice = Prompt.ask("Select mode", choices=["1", "2"], default="1")
     automation_type = "warmup" if mode_choice == "1" else "follow/unfollow"
-    
+
     day_number = 1
     if automation_type == "warmup":
         console.print("\n[bold]Select Account Age (Preset):[/bold]")
         console.print("[cyan]1-2:[/cyan] New Account (Cautious)")
         console.print("[cyan]3-5:[/cyan] Warming Up (Standard)")
         console.print("[cyan]6-7:[/cyan] Established (Active)")
-        
+
         day_str = Prompt.ask("Enter Day Number (1-7)", default="1")
         if day_str.isdigit() and 1 <= int(day_str) <= 7:
             day_number = int(day_str)
-        
+
         # Optional: Allow custom overrides here if you want later
-        
+
     # 4. Process Management
     # Ensure manage_adb_server is imported
     manage_adb_server("kill")
@@ -703,7 +818,9 @@ def start_automation_all():
     appium_base_port = 4723
     system_base_port = 8200
 
-    rprint(f"\n[bold blue]Starting {len(selected_devices)} processes for Day {day_number}...[/bold blue]")
+    rprint(
+        f"\n[bold blue]Starting {len(selected_devices)} processes for Day {day_number}...[/bold blue]"
+    )
 
     try:
         for i, device in enumerate(selected_devices):
@@ -713,13 +830,13 @@ def start_automation_all():
 
             p = multiprocessing.Process(
                 target=run_automation_for_device,
-                args=(device, automation_type, a_port, s_port, day_number)
+                args=(device, automation_type, a_port, s_port, day_number),
             )
             processes.append(p)
             p.start()
-            
+
             rprint(f"[dim]Launched: {device['name']} (Port {a_port})[/dim]")
-            time.sleep(3) # Stagger starts to prevent ADB choking
+            time.sleep(3)  # Stagger starts to prevent ADB choking
 
         # Wait for all to finish
         for p in processes:
@@ -732,13 +849,14 @@ def start_automation_all():
     finally:
         # Emergency Cleanup
         for p in processes:
-            if p.is_alive(): p.terminate()
-        
+            if p.is_alive():
+                p.terminate()
+
         # Optional: Stop remote phones automatically
-        remote_ids = [d['id'] for d in selected_devices if d.get("type") == "remote"]
+        remote_ids = [d["id"] for d in selected_devices if d.get("type") == "remote"]
         if remote_ids:
-           stop_phone(remote_ids)
-                
+            stop_phone(remote_ids)
+
         manage_adb_server("kill")
 
 
@@ -760,7 +878,7 @@ def start_automation_specific():
         device_numbers = [str(i) for i in range(1, len(devices) + 1)]
         choice = Prompt.ask("Select device number", choices=device_numbers)
         selected_device = devices[int(choice) - 1]
-    
+
         automation_type = get_automation_type()
         duration = 5
         probability = 5
@@ -769,75 +887,92 @@ def start_automation_specific():
             duration_str = Prompt.ask("Enter swipe duration in minutes", default="5")
             duration = int(duration_str) if duration_str.isdigit() else 5
             prob_str = Prompt.ask("Enter right swipe probability (1-10)", default="5")
-            probability = int(prob_str) if prob_str.isdigit() and 1 <= int(prob_str) <= 10 else 5
-        
-        # --- SETUP LOGGING AND ENVIRONMENT ---
-        device_name = selected_device.get('name', 'UnknownDevice')
-        device_id = selected_device.get('id')
+            probability = (
+                int(prob_str) if prob_str.isdigit() and 1 <= int(prob_str) <= 10 else 5
+            )
 
-        log = create_device_logger(device_id,device_name)
-        
+        # --- SETUP LOGGING AND ENVIRONMENT ---
+        device_name = selected_device.get("name", "UnknownDevice")
+        device_id = selected_device.get("id")
+
+        log = create_device_logger(device_id, device_name)
+
         # <<< FIX 1: REMOVED THE CALLS to initialize_swipe_logger and initialize_chat_logger >>>
         # They are not needed.
 
         manage_adb_server("kill")
         manage_adb_server("start")
-        
+
         # --- CONNECT AND INITIALIZE ---
         if selected_device["type"] == "local":
-            connection_info = { "ip": selected_device["id"].split(":")[0], "port": selected_device["id"].split(":")[1] }
+            connection_info = {
+                "ip": selected_device["id"].split(":")[0],
+                "port": selected_device["id"].split(":")[1],
+            }
             log(f"[green]Using local device: {selected_device['name']}[/green]")
         else:
-            log(f"\n[yellow]Preparing {selected_device['name']} for automation...[/yellow]")
-            connection_info = connect_to_phone(selected_device['id'])
-        
+            log(
+                f"\n[yellow]Preparing {selected_device['name']} for automation...[/yellow]"
+            )
+            connection_info = connect_to_phone(selected_device["id"])
+
         if not connection_info:
             log("[red]Failed to prepare device for automation. Please try again.[/red]")
             return
-        
+
         appium_port = 4723
         system_port = 8200
         server_url = f"http://127.0.0.1:{appium_port}/wd/hub"
 
         log("[yellow]Starting Appium server...[/yellow]")
-        appium_service = start_appium_service_instance('127.0.0.1', appium_port, system_port, log)
-        
+        appium_service = start_appium_service_instance(
+            "127.0.0.1", appium_port, system_port, log
+        )
+
         log("[yellow]Initializing Appium driver...[/yellow]")
         driver = setup_appium_driver(connection_info, server_url, system_port)
         if not driver:
             log("[red]Failed to initialize Appium driver. Stopping automation.[/red]")
             return
-            
+
         log("[green]Appium driver initialized successfully[/green]")
-        
+
         if automation_type == "swiping":
-            if open_page(driver, "Home",logger_func=log): 
+            if open_page(driver, "Home", logger_func=log):
                 log("[green]we are on the home page starting warmup phase!")
                 # source = driver.page_source
                 # # Save it to a file
                 # with open("current_screen.xml", "w", encoding='utf-8') as f:
                 #     f.write(source)
                 # print("Page source saved to current_screen.xml")
-                perform_warmup(driver, intensity=1, like_probability=35, likes_hard_limit=5)
+                perform_warmup(
+                    driver, intensity=1, like_probability=35, likes_hard_limit=5
+                )
                 time.sleep(6)
-            if open_page(driver, "profile",logger_func=log): 
+            if open_page(driver, "profile", logger_func=log):
                 log("[green]We are on the profiles page")
                 time.sleep(2)
                 # realistic_swipe(driver, right_swipe_probability=probability, duration_minutes=duration, logger_func=log)
         elif automation_type == "handle_matches":
-            if open_page(driver, "Chats",logger_func=log): 
-                process_new_matches(driver, 10, 5,logger_func=log)
+            if open_page(driver, "Chats", logger_func=log):
+                process_new_matches(driver, 10, 5, logger_func=log)
         elif automation_type == "auto":
             for i in range(2):
-                if open_page(driver, "Home", logger_func=log): 
-                    realistic_swipe(driver, right_swipe_probability=7, duration_minutes=5, logger_func=log)
-                if open_page(driver, "Chats",logger_func=log): 
-                    process_new_matches(driver,10, 5, logger_func=log)
-            
+                if open_page(driver, "Home", logger_func=log):
+                    realistic_swipe(
+                        driver,
+                        right_swipe_probability=7,
+                        duration_minutes=5,
+                        logger_func=log,
+                    )
+                if open_page(driver, "Chats", logger_func=log):
+                    process_new_matches(driver, 10, 5, logger_func=log)
+
     except Exception as e:
         # Use rprint here to be safe in case the 'log' function itself has an issue.
         rprint(f"[bold red]An error occurred during automation: {str(e)}[/bold red]")
         import traceback
+
         rprint(traceback.format_exc())
     finally:
         # This local cleanup is correct. Do not change it.
@@ -848,34 +983,43 @@ def start_automation_specific():
                 rprint("[green]Appium driver closed.[/green]")
             except Exception as e:
                 if "A session is either terminated or not started" in str(e):
-                    rprint("[yellow]Could not quit driver (session was already closed, this is normal on exit).[/yellow]")
+                    rprint(
+                        "[yellow]Could not quit driver (session was already closed, this is normal on exit).[/yellow]"
+                    )
                 else:
                     # If it's a different error, print it in red because it was unexpected.
-                    rprint(f"[red]An unexpected error occurred while closing the driver: {str(e)}[/red]")
-        
+                    rprint(
+                        f"[red]An unexpected error occurred while closing the driver: {str(e)}[/red]"
+                    )
+
         if appium_service and appium_service.is_running:
             try:
                 appium_service.stop()
                 rprint("[green]Appium server stopped.[/green]")
             except Exception as e:
                 rprint(f"[red]Error stopping Appium server: {e}[/red]")
-        
+
         if selected_device and selected_device["type"] == "remote":
             try:
-                stop_phone([selected_device['id']])
-                rprint(f"[green]Phone stop signal sent for {selected_device['name']}.[/green]")
+                stop_phone([selected_device["id"]])
+                rprint(
+                    f"[green]Phone stop signal sent for {selected_device['name']}.[/green]"
+                )
             except Exception as e:
                 rprint(f"[red]Error stopping phone: {str(e)}[/red]")
-        
+
         manage_adb_server("kill")
+
+
 def list_available_phones():
     """List all available devices."""
     devices = get_all_available_devices()
     if not devices:
         rprint("[red]No available devices found![/red]")
         return
-    
+
     display_phones(devices)
+
 
 def disable_phone():
     """Disable a phone from automation."""
@@ -887,13 +1031,14 @@ def disable_phone():
     phones = display_phones(phones)
     phone_numbers = [str(i) for i in range(1, len(phones) + 1)]
     choice = Prompt.ask("Select phone number to disable", choices=phone_numbers)
-    
+
     selected_phone = phones[int(choice) - 1]
-    
+
     if Confirm.ask(f"Are you sure you want to disable {selected_phone['name']}?"):
         # TODO: Implement actual phone disable function
         rprint(f"[red]Disabling {selected_phone['name']}...[/red]")
         rprint("[yellow]This is a placeholder for the actual implementation[/yellow]")
+
 
 def show_menu():
     """Display the main menu."""
@@ -905,11 +1050,13 @@ def show_menu():
         console.print("2. Start Automation for Specific Device")
         console.print("3. List Available Devices")
         console.print("4. Disable Device")
-        console.print("5. Open Phones for Manual Use")  
-        console.print("6. Exit")                      
-        
-        choice = Prompt.ask("\nSelect an option", choices=["1", "2", "3", "4", "5", "6"])
-        
+        console.print("5. Open Phones for Manual Use")
+        console.print("6. Exit")
+
+        choice = Prompt.ask(
+            "\nSelect an option", choices=["1", "2", "3", "4", "5", "6"]
+        )
+
         if choice == "1":
             start_automation_all()
         elif choice == "2":
@@ -926,8 +1073,9 @@ def show_menu():
             if Confirm.ask("Are you sure you want to exit?"):
                 console.print("[yellow]Goodbye![/yellow]")
                 break
-        
+
         Prompt.ask("\nPress Enter to continue")
+
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()

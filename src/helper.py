@@ -101,6 +101,34 @@ def get_current_screen_by_tab(driver, timeout=5):
     return "UNKNOWN_SCREEN"
 
 
+def is_account_banned_or_checkpoint(driver):
+    """
+    Checks for the 'Confirm you're human' or 'Verify your account' screens.
+    Returns True if the account is stuck/banned.
+    """
+    # 1. Check for the specific text from your XML
+    # "Confirm you're human to use your account..."
+    ban_indicators = [
+        "Confirm you're human",
+        "Help us confirm",
+        "Suspended",
+        "Verify your account",
+    ]
+
+    for text_val in ban_indicators:
+        if driver(textContains=text_val).exists(timeout=1):
+            return True
+
+    # 2. Check for the 'Continue' button seen in your XML
+    if (
+        driver(description="Continue").exists(timeout=0.5)
+        and not driver(resourceId=NAV_BAR_ID).exists()
+    ):
+        return True
+
+    return False
+
+
 def open_page(
     driver,
     page_name_from_ui,
@@ -123,59 +151,74 @@ def open_page(
     target_id = TAB_ID_MAP[target_key]
 
     try:
-        # 1. OPTIMISTIC CLICK (The Speed Secret)
-        # We don't check if we are already there. We just click.
-        # Clicking the tab we are already on does nothing in IG, so it's safe.
         log(f"[yellow]Navigating to {target_key}...[/yellow]")
-
-        # We use a very short timeout. If the tab bar is visible, this is instant.
         tab = driver(resourceId=target_id)
-        if tab.exists(timeout=1):
+
+        # 1. OPTIMISTIC CLICK
+        if tab.exists(timeout=1.5):
             tab.click()
         else:
-            # ONLY if the tab isn't found do we handle popups (Saves 2-3 seconds)
+            # Check for ban if tab bar is missing
+            if is_account_banned_or_checkpoint(driver):
+                log("[bold red]!!! ACCOUNT BANNED / CHECKPOINT DETECTED !!![/bold red]")
+                raise Exception("ACCOUNT_BANNED")
+
             log("[dim]Tab bar not found, clearing popups...[/dim]")
             handle_common_popups(driver)
-            tab.click(timeout=3)
 
-        # 2. FAST VERIFICATION
-        # Instead of a complex loop, we check for a "Success Signal"
-        # For Search, it's the search box. For Home, it's the logo, etc.
+            # Click with a slight wait
+            if not tab.click(timeout=3):
+                log(f"[red]Could not find {target_key} tab after popups.[/red]")
+                # Fall through to recovery
+            else:
+                # Small sleep to let IG flip the 'selected' attribute
+                time.sleep(0.5)
 
-        # We check the specific 'selected' state for the target tab only
-        if driver(resourceId=target_id, selected=True).wait(
-            timeout=verification_timeout
-        ):
-            log(f"[green]Successfully on {target_key}.[/green]")
-            return True
+        # 2. ROBUST VERIFICATION (Avoids RPC -32002)
+        # We wait for the ID to exist first
+        if tab.wait(timeout=verification_timeout):
+            # Then we check if it is selected via .info (This is safer than putting it in the selector)
+            if tab.info.get("selected"):
+                log(f"[green]Successfully on {target_key}.[/green]")
+                return True
 
-        # 3. FALLBACK VERIFICATION (If 'selected' state is laggy)
+        # 3. FALLBACK VERIFICATION
         if get_current_screen_by_tab(driver, timeout=1) == target_screen_id:
+            log(f"[green]Verification Success (Fallback) for {target_key}.[/green]")
             return True
 
         # 4. LAST RESORT: RECOVERY
         log(f"[red]Failed to verify {target_key}. Restarting app...[/red]")
         driver.app_stop(APP_PACKAGE)
         driver.app_start(APP_PACKAGE)
-        # Recursive call for one retry
+        time.sleep(2)
         return driver(resourceId=target_id).click(timeout=5)
 
     except Exception as e:
-        # If it's a network error, don't return False. RAISE it!
         err_msg = str(e).lower()
+
+        # If it's a specific RPC Error, we treat it as a network hiccup to trigger Auto-Heal
+        if "-32002" in err_msg:
+            log("[yellow]Internal RPC Error (-32002). Triggering Auto-Heal...[/yellow]")
+            raise e
+
+        # Critical Network Errors
         critical_errors = [
             "rpc",
             "connection",
             "closed",
             "remote end",
-            "device offline",
-            "read timeout",
+            "offline",
+            "timeout",
             "broken pipe",
         ]
-        # Check for disconnect signals
-        is_disconnect = any(x in err_msg for x in critical_errors)
-        err_str = str(e)
-        if any(x in err_str for x in critical_errors):
+        if any(x in err_msg for x in critical_errors):
+            log(f"[red]Network Error in Nav: {e}[/red]")
             raise e
-        log(f"[red]Nav Error: {e}[/red]")
+
+        # Custom Ban Error
+        if "ACCOUNT_BANNED" in str(e):
+            raise e
+
+        log(f"[red]Logic Error in Nav: {e}[/red]")
         return False

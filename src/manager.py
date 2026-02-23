@@ -18,10 +18,10 @@ device_map_lock = threading.Lock()
 
 
 # Tracks running Python processes: { "device_id": <Process Object> }
-active_processes = {} 
+active_processes = {}
 
 # --- TRACKING STATE ---
-active_processes = {} 
+active_processes = {}
 # NEW: Track which ports are currently assigned to which device
 # Format: { "device_id": (appium_port, system_port) }
 
@@ -31,7 +31,9 @@ def log(msg, style="white"):
     timestamp = datetime.datetime.now().strftime("%H:%M:%S")
     rprint(f"[{timestamp}] [{style}]{msg}[/{style}]")
 
+
 # --- COMMAND HELPERS ---
+
 
 def perform_live_sync(source="Background"):
     """
@@ -42,51 +44,58 @@ def perform_live_sync(source="Background"):
     try:
         log(f"{source} Sync: Fetching devices from Geelark...", "dim")
         live_api_devices = get_all_available_devices()
-        
+
         if live_api_devices is not None:
             # 1. Update Database
             db.sync_devices_with_api(live_api_devices)
-            
+
             # 2. Update Shared Memory (Thread-Safe)
             # We keep the lock to ensure the main loop doesn't read while we write
             with device_map_lock:
                 shared_device_map.clear()
                 for d in live_api_devices:
-                    shared_device_map[d['id']] = d
-            
+                    shared_device_map[d["id"]] = d
+
             log(f"{source} Sync: Updated {len(live_api_devices)} devices.", "dim")
             return True
         else:
             log(f"{source} Sync: API returned None.", "yellow")
             return False
-            
+
     except Exception as e:
         log(f"{source} Sync Error: {e}", "red")
         return False
+
 
 def kill_worker(device_id):
     """Safely terminates a specific worker process."""
 
     from database import Account, update_account_runtime_status
+
     if device_id in active_processes:
         proc = active_processes[device_id]
         if proc.is_alive():
             log(f"Executing KILL command for {device_id}...", "bold red")
             proc.terminate()
             proc.join(timeout=5)
-        
+
         # Cleanup Memory
         del active_processes[device_id]
-        
+
         # Cleanup DB (Release Targets)
         # We find targets currently reserved by this account
         try:
             from database import Account, Target, release_reserved_targets
+
             acc = Account.get(Account.device_id == device_id)
-            reserved = Target.select().where((Target.status == 'reserved') & (Target.reserved_by == acc))
+            reserved = Target.select().where(
+                (Target.status == "reserved") & (Target.reserved_by == acc)
+            )
             users_to_free = [t.username for t in reserved]
             if users_to_free:
-                log(f"Releasing {len(users_to_free)} targets for {device_id}.", "yellow")
+                log(
+                    f"Releasing {len(users_to_free)} targets for {device_id}.", "yellow"
+                )
                 release_reserved_targets(device_id)
         except Exception as e:
             log(f"Error releasing targets during kill: {e}", "dim")
@@ -96,35 +105,40 @@ def kill_worker(device_id):
             log(f"Sending STOP signal to Cloud API for {device_id}...", "red")
             stop_phone([device_id])
         except Exception as e:
-            log(f"API Stop Error (Ignored): {e}", "dim") # Don't crash, just log
+            log(f"API Stop Error (Ignored): {e}", "dim")  # Don't crash, just log
 
         # Always update DB status even if API failed, so UI knows it's effectively dead
         from database import update_account_runtime_status
+
         update_account_runtime_status(device_id, "STOPPED")
         return True
     return False
 
+
 def process_command_queue():
     """Checks DB for instructions. Returns True if action was taken."""
-    cmd = db.pop_pending_command() # Ensure this exists in database.py
-    if not cmd: return False
+    cmd = db.pop_pending_command()  # Ensure this exists in database.py
+    if not cmd:
+        return False
 
     log(f"RECEIVED COMMAND: {cmd.command} (Target: {cmd.target_id})", "bold magenta")
-    
+
     try:
         if cmd.command == "STOP_DEVICE":
             kill_worker(cmd.target_id)
-            db.set_account_enabled(cmd.target_id, False) # Disable this specific account
-            
+            db.set_account_enabled(
+                cmd.target_id, False
+            )  # Disable this specific account
+
         elif cmd.command == "STOP_ALL":
             log("STOP ALL command received. Killing all workers...", "bold red")
             for dev_id in list(active_processes.keys()):
-                db.set_account_enabled(dev_id, False) # Disable this specific account
+                db.set_account_enabled(dev_id, False)  # Disable this specific account
                 kill_worker(dev_id)
-            
+
             # Disable ALL active accounts so they don't restart
             db.disable_all_accounts()
-            
+
             # Turn off the Global Switch so it doesn't restart
             db.set_global_automation(False)
 
@@ -132,35 +146,42 @@ def process_command_queue():
             log("RECEIVED COMMAND: FORCE_SYNC", "bold magenta")
             perform_live_sync(source="Manual")
 
-        db.complete_command(cmd.id, "completed") # Ensure this exists in database.py
+        db.complete_command(cmd.id, "completed")  # Ensure this exists in database.py
         return True
-        
+
     except Exception as e:
         log(f"Command Execution Failed: {e}", "red")
         db.complete_command(cmd.id, "failed")
         return False
 
+
 def perform_startup_cloud_audit():
     """
-    Ensures no phones are left running in the cloud 
+    Ensures no phones are left running in the cloud
     when the Manager starts fresh. Prevents ghost billing.
     """
     log("Starting Cloud Audit...", "bold cyan")
     try:
         live_devices = get_all_available_devices()
-        zombie_ids = [d['id'] for d in live_devices if d.get('status') == 'active']
-        
+        zombie_ids = [d["id"] for d in live_devices if d.get("status") == "active"]
+
         if zombie_ids:
-            log(f"FOUND {len(zombie_ids)} ZOMBIE PHONES ON CLOUD. Shutting them down...", "bold red")
+            log(
+                f"FOUND {len(zombie_ids)} ZOMBIE PHONES ON CLOUD. Shutting them down...",
+                "bold red",
+            )
             stop_phone(zombie_ids)
             log("Cloud state cleared.", "green")
         else:
             log("No zombie phones detected. Cloud is clean.", "dim")
-            
+
         # Reset all runtime_statuses in DB to IDLE/STOPPED on startup
         from database import Account
-        Account.update(runtime_status="READY").where(Account.status == 'active').execute()
-        
+
+        Account.update(runtime_status="READY").where(
+            Account.status == "active"
+        ).execute()
+
     except Exception as e:
         log(f"Startup Audit Failed: {e}", "red")
 
@@ -171,18 +192,19 @@ def smart_sleep_and_listen(seconds):
     """
     for _ in range(seconds):
         if process_command_queue():
-            # If we handled a command, we don't return immediately, 
-            # we just keep sleeping to respect the cycle time, 
+            # If we handled a command, we don't return immediately,
+            # we just keep sleeping to respect the cycle time,
             # BUT we processed the command instantly.
-            pass 
+            pass
         time.sleep(1)
+
 
 def background_api_sync():
     """Runs in a separate thread to sync with Geelark without blocking the Manager."""
     while True:
         # We just call the logic function
         perform_live_sync(source="Background")
-        
+
         # Sleep for 10 minutes (600 seconds)
         time.sleep(600)
 
@@ -192,11 +214,11 @@ def manager_loop():
     log("FACTORY HEARTBEAT STARTED", "bold green")
     sync_thread = threading.Thread(target=background_api_sync, daemon=True)
     sync_thread.start()
-    
+
     # --- NEW: Status Cache for State Diffing ---
     # format: { 'device_id': 'RUNNING' }
-    last_known_status = {} 
-    
+    last_known_status = {}
+
     while True:
         # 0. Load Dynamic Config
         SESSION_CONFIG = db.get_session_config()
@@ -208,13 +230,16 @@ def manager_loop():
         if not db.is_automation_on():
             db.run_janitor_cleanup(timeout_minutes=30)
             if active_processes:
-                log("Global Switch is OFF, but processes are active. INITIATING PURGE...", "bold red")
+                log(
+                    "Global Switch is OFF, but processes are active. INITIATING PURGE...",
+                    "bold red",
+                )
                 running_ids = list(active_processes.keys())
                 for dev_id in running_ids:
                     log(f"  -> Enforcing stop on {dev_id}...", "red")
                     kill_worker(dev_id)
                 log("Purge complete. System is fully halted.", "green")
-            
+
             # Even when paused, we update status to 'DISABLED' for UI feedback
             # (Optional: you can skip this if you want to keep last known state)
             smart_sleep_and_listen(5)
@@ -231,21 +256,28 @@ def manager_loop():
 
         # 4. AUTO-COMPLETE CHECK
         pending_targets = db.get_total_pending_targets()
-        
+
         # Check if there are ANY enabled accounts set to 'warmup'
         # If these exist, we must keep the system ON even if targets are 0.
-        has_warmup_tasks = db.Account.select().where(
-            (db.Account.status == 'active') & 
-            (db.Account.is_enabled == True) & 
-            (db.Account.task_mode == 'warmup')
-        ).exists()
+        has_warmup_tasks = (
+            db.Account.select()
+            .where(
+                (db.Account.status == "active")
+                & (db.Account.is_enabled == True)
+                & (db.Account.task_mode == "warmup")
+            )
+            .exists()
+        )
 
-        # Shutdown Condition: 
+        # Shutdown Condition:
         # 1. No Targets AND
         # 2. No Active Workers AND
         # 3. No Warmup Tasks waiting to run
         if pending_targets == 0 and len(active_processes) == 0 and not has_warmup_tasks:
-            log("JOB COMPLETE: No pending targets, no active workers, and no Warmup tasks.", "bold green")
+            log(
+                "JOB COMPLETE: No pending targets, no active workers, and no Warmup tasks.",
+                "bold green",
+            )
             log("Turning Global Switch OFF.", "green")
             db.set_global_automation(False)
             continue
@@ -254,93 +286,105 @@ def manager_loop():
         # We only pause for low inventory if we DO NOT have warmup tasks to run.
         # If we have warmup tasks, we must proceed to Step 7 to launch them.
         if not has_warmup_tasks:
-            if pending_targets < SESSION_CONFIG['min_batch_start'] and len(active_processes) == 0:
-                log(f"Inventory low ({pending_targets}). Waiting for targets...", "yellow")
+            if (
+                pending_targets < SESSION_CONFIG["min_batch_start"]
+                and len(active_processes) == 0
+            ):
+                log(
+                    f"Inventory low ({pending_targets}). Waiting for targets...",
+                    "yellow",
+                )
                 smart_sleep_and_listen(30)
                 continue
 
         # 5. Inventory Check (Low Inventory Pause)
-        if pending_targets < SESSION_CONFIG['min_batch_start'] and len(active_processes) == 0:
+        if (
+            pending_targets < SESSION_CONFIG["min_batch_start"]
+            and len(active_processes) == 0
+        ):
             log(f"Inventory low ({pending_targets}). Waiting for targets...", "yellow")
             smart_sleep_and_listen(30)
             continue
 
         # 6. API Data Refresh (Non-Blocking)
         # We read from the shared memory updated by the background thread
-        device_map = {} # Initialize an empty dict
+        device_map = {}  # Initialize an empty dict
         with device_map_lock:
             # We create a local copy 'device_map' so Step 7 can use it
             device_map = shared_device_map.copy()
-        
-        # If the background thread hasn't finished its first sync yet, 
+
+        # If the background thread hasn't finished its first sync yet,
         # device_map will be empty. We should wait.
         if not device_map:
             log("Waiting for first API sync to complete...", "dim")
             smart_sleep_and_listen(5)
             continue
 
-# 7. ALLOCATION PASS (With Concurrency Queue)
+        # 7. ALLOCATION PASS (With Concurrency Queue)
         runnable = db.get_runnable_accounts()
         launched_this_cycle = 0
-        
+
         # --- NEW: CONCURRENCY CHECK ---
         # 1. Get the limit (Default 5 if not set)
-        max_concurrent = SESSION_CONFIG.get('max_concurrent_sessions', 5)
-        
+        max_concurrent = SESSION_CONFIG.get("max_concurrent_sessions", 5)
+
         # 2. Count active workers
         current_running = len(active_processes)
-        
+
         # 3. Calculate empty seats
         open_slots = max_concurrent - current_running
-        
+
         # If we have no open slots, we skip the launch logic entirely.
         # The enabled accounts will sit in the DB as "IDLE" (Queued) until a slot opens.
         if open_slots > 0:
-            
             for acc in runnable:
                 # 4. STOP if we filled the open slots this cycle
                 if launched_this_cycle >= open_slots:
                     break
 
-                process_command_queue() 
+                process_command_queue()
 
-                if acc.device_id in active_processes: continue 
-                
+                if acc.device_id in active_processes:
+                    continue
+
                 # --- COMMON CHECKS ---
-                
+
                 # 1. Device Availability (Moved UP so both modes use it)
                 full_device_data = device_map.get(acc.device_id)
-                if not full_device_data: continue
+                if not full_device_data:
+                    continue
 
                 # 2. Hard Cooldown (Moved UP so both modes respect it)
                 cooldown_remaining = db.get_account_cooldown_remaining(acc.device_id)
                 if cooldown_remaining is not None:
                     # Log optional, skipping to reduce noise
                     continue
-                
+
                 # Base Payload
-                payload = {
-                    'config': SESSION_CONFIG, 
-                    'static_device_id': acc.device_id
-                }
-                
+                payload = {"config": SESSION_CONFIG, "static_device_id": acc.device_id}
+
                 automation_type = None
 
                 # ==========================================================
                 # MODE A: WARMUP
                 # ==========================================================
-                if acc.task_mode == 'warmup':
-                    strategy = SESSION_CONFIG.get('warmup_strategy', {})
+                if acc.task_mode == "warmup":
+                    strategy = SESSION_CONFIG.get("warmup_strategy", {})
                     day_key = str(acc.warmup_day)
                     # Fallback to "1" if day config missing
                     day_config = strategy.get(day_key, strategy.get("1"))
-                    
+
                     if day_config:
-                        payload['day_config'] = day_config
-                        payload['day_config']['share_targets'] = SESSION_CONFIG.get('share_targets', [])
-                        automation_type = 'warmup'
+                        payload["day_config"] = day_config
+                        payload["day_config"]["share_targets"] = SESSION_CONFIG.get(
+                            "share_targets", []
+                        )
+                        automation_type = "warmup"
                         # Logging for Warmup
-                        log(f"SUCCESS: Launching {acc.profile_name} in Warmup Mode (Day {day_key}).", "bold green")
+                        log(
+                            f"SUCCESS: Launching {acc.profile_name} in Warmup Mode (Day {day_key}).",
+                            "bold green",
+                        )
                     else:
                         log(f"CRITICAL: Missing Warmup Config for Day {day_key}", "red")
                         continue
@@ -353,30 +397,50 @@ def manager_loop():
                     stats = db.get_account_heat_stats(acc.device_id)
 
                     log(f"Status Check [{acc.profile_name}]:", "bold cyan")
-                    log(f"  -> Session (2h Rolling): {stats['recent_2h']}/{SESSION_CONFIG['session_limit_2h']}", "white")
-                    log(f"  -> Daily (24h Rolling): {stats['rolling_24h']}/{acc.daily_limit}", "white")
+                    log(
+                        f"  -> Session (2h Rolling): {stats['recent_2h']}/{SESSION_CONFIG['session_limit_2h']}",
+                        "white",
+                    )
+                    log(
+                        f"  -> Daily (24h Rolling): {stats['rolling_24h']}/{acc.daily_limit}",
+                        "white",
+                    )
 
-                    if stats['rolling_24h'] >= acc.daily_limit:
-                        log(f"  -> {acc.profile_name} hit Rolling 24h limit. Waiting for window to slide...", "yellow")
+                    if stats["rolling_24h"] >= acc.daily_limit:
+                        log(
+                            f"  -> {acc.profile_name} hit Rolling 24h limit. Waiting for window to slide...",
+                            "yellow",
+                        )
                         continue
 
-                    space_24h = acc.daily_limit - stats['rolling_24h']
-                    space_2h = SESSION_CONFIG['session_limit_2h'] - stats['recent_2h']
-                    
-                    # Take the smallest of: batch cap, 2h remaining, 24h remaining, available targets
-                    batch_size = min(SESSION_CONFIG['batch_size'], space_2h, space_24h, pending_targets)
+                    space_24h = acc.daily_limit - stats["rolling_24h"]
+                    space_2h = SESSION_CONFIG["session_limit_2h"] - stats["recent_2h"]
 
-                    if batch_size < SESSION_CONFIG['min_batch_start']:
-                        log(f"  -> SKIPPING: Remaining capacity ({batch_size}) is below min batch start ({SESSION_CONFIG['min_batch_start']}).", "dim")
+                    # Take the smallest of: batch cap, 2h remaining, 24h remaining, available targets
+                    batch_size = min(
+                        SESSION_CONFIG["batch_size"],
+                        space_2h,
+                        space_24h,
+                        pending_targets,
+                    )
+
+                    if batch_size < SESSION_CONFIG["min_batch_start"]:
+                        log(
+                            f"  -> SKIPPING: Remaining capacity ({batch_size}) is below min batch start ({SESSION_CONFIG['min_batch_start']}).",
+                            "dim",
+                        )
                         continue
 
                     # 2. Reserve Targets
                     targets = db.reserve_targets(acc.id, batch_size)
                     if targets:
-                        log(f"SUCCESS: Launching {acc.profile_name} to process {len(targets)} targets.", "bold green")
-                        pending_targets -= len(targets) # Local decrement
-                        payload['targets'] = targets
-                        automation_type = 'follow'
+                        log(
+                            f"SUCCESS: Launching {acc.profile_name} to process {len(targets)} targets.",
+                            "bold green",
+                        )
+                        pending_targets -= len(targets)  # Local decrement
+                        payload["targets"] = targets
+                        automation_type = "follow"
                     else:
                         continue
 
@@ -386,73 +450,87 @@ def manager_loop():
                 if automation_type:
                     p = multiprocessing.Process(
                         target=run_automation_for_device,
-                        args=(full_device_data, automation_type, payload)
+                        args=(full_device_data, automation_type, payload),
                     )
                     p.start()
                     active_processes[acc.device_id] = p
                     launched_this_cycle += 1
-                    
+
                     log(f"Staggering 5s...", "dim")
-                    smart_sleep_and_listen(2)        
+                    smart_sleep_and_listen(2)
         else:
             pass
 
         # 8. STATUS REPORTING & STATS CACHING
         try:
-            from database import Account, update_account_runtime_status, get_account_heat_stats
-            
-            # Fetch all active accounts
-            all_accounts = Account.select().where(Account.status == 'active').order_by(Account.device_id.desc())
-            
+            from database import (
+                Account,
+                update_account_runtime_status,
+                get_account_heat_stats,
+            )
+
+            # Fetch ONLY active accounts.
+            # This ensures we don't overwrite 'BANNED' or 'ARCHIVED' statuses.
+            all_accounts = (
+                Account.select()
+                .where(Account.status == "active")
+                .order_by(Account.device_id.desc())
+            )
+
             for acc in all_accounts:
-                # 1. CALCULATE STATS (The heavy lifting happens here now)
-                # We do this once per cycle (e.g. every 5s) instead of every API request
                 stats = get_account_heat_stats(acc.device_id)
-                
-                # 2. DETERMINE STATUS
                 new_status = "UNKNOWN"
+
                 if not acc.is_enabled:
-                    new_status = "DISABLED"
+                    # User has not pressed Start
+                    new_status = "READY"
+
                 elif acc.device_id in active_processes:
+                    # Bot is currently working
                     new_status = "RUNNING"
+
                 else:
-                    cooldown_remaining = db.get_account_cooldown_remaining(acc.device_id)
+                    # It is Enabled but NOT running. Let's find out why:
+                    cooldown_remaining = db.get_account_cooldown_remaining(
+                        acc.device_id
+                    )
+
                     if cooldown_remaining is not None:
                         new_status = "COOLDOWN"
-                    elif stats['rolling_24h'] >= acc.daily_limit:
-                        new_status = "DAILY_LIMIT_HIT"
-                    elif pending_targets < SESSION_CONFIG['min_batch_start']:
+
+                    elif stats["rolling_24h"] >= acc.daily_limit:
+                        new_status = "LIMIT_HIT"
+
+                    elif (
+                        acc.task_mode == "follow"
+                        and pending_targets < SESSION_CONFIG["min_batch_start"]
+                    ):
                         new_status = "NO_TARGETS"
+
                     else:
-                        new_status = "IDLE"
-                
-                # 3. WRITE TO DB (State Diffing + Stats Update)
-                # We check if Status OR Stats have changed significantly to avoid spamming DB
-                # But since we want live-ish counters, we update if counts change too.
-                
+                        # It's ready to go, but just waiting for a concurrency slot
+                        # or the next manager cycle.
+                        new_status = "QUEUED"
+
+                # WRITE TO DB (State Diffing)
                 previous_status = last_known_status.get(acc.device_id)
-                
-                # Check if data changed
                 data_changed = (
-                    new_status != previous_status or 
-                    acc.cached_2h_count != stats['recent_2h'] or 
-                    acc.cached_24h_count != stats['rolling_24h']
+                    new_status != previous_status
+                    or acc.cached_2h_count != stats["recent_2h"]
+                    or acc.cached_24h_count != stats["rolling_24h"]
                 )
 
                 if data_changed:
-                    # Update the object in memory
                     acc.runtime_status = new_status
-                    acc.cached_2h_count = stats['recent_2h']
-                    acc.cached_24h_count = stats['rolling_24h']
-                    
-                    # Save specific fields to DB (Efficient UPDATE)
-                    acc.save(only=['runtime_status', 'cached_2h_count', 'cached_24h_count'])
-                    
-                    # Update local cache
+                    acc.cached_2h_count = stats["recent_2h"]
+                    acc.cached_24h_count = stats["rolling_24h"]
+                    acc.save(
+                        only=["runtime_status", "cached_2h_count", "cached_24h_count"]
+                    )
                     last_known_status[acc.device_id] = new_status
 
         except Exception as e:
-            log(f"Status/Stats Update Error: {e}", "red")
+            log(f"Status Update Error: {e}", "red")
 
         # 9. Adaptive Sleep
         if launched_this_cycle > 0:
@@ -461,6 +539,8 @@ def manager_loop():
         else:
             log("Manager Idle. Waiting 5s...", "dim")
             smart_sleep_and_listen(5)
+
+
 def main():
     try:
         rprint("[bold blue]Starting Farm Manager (Remote Control Ready)...[/bold blue]")
@@ -471,16 +551,21 @@ def main():
         rprint("\n[bold red]Manual Shutdown Triggered.[/bold red]")
     finally:
         rprint("[bold yellow]CLEANUP INITIATED[/bold yellow]")
-        
+
         # 1. Kill Processes
         for dev_id, proc in active_processes.items():
             if proc.is_alive():
                 rprint(f"Terminating PID {proc.pid}...")
                 proc.terminate()
-        
+
         # 2. Release Leads
         from database import Target, set_global_automation
-        count = Target.update(status='pending', reserved_by=None).where(Target.status == 'reserved').execute()
+
+        count = (
+            Target.update(status="pending", reserved_by=None)
+            .where(Target.status == "reserved")
+            .execute()
+        )
         rprint(f"Released {count} leads back to pending.")
         set_global_automation(False)
         rprint(f"Stopped Global Automation!")
@@ -488,16 +573,22 @@ def main():
         active_ids = list(active_processes.keys())
         if active_ids:
             rprint(f"[bold red]KILLING {len(active_ids)} CLOUD PHONES...[/bold red]")
-            try: stop_phone(active_ids)
-            except: pass
-        
+            try:
+                stop_phone(active_ids)
+            except:
+                pass
+
         # 4. RESET RUNTIME STATUS (The Fix)
         # Mark everything as DISABLED or IDLE so the UI doesn't show "Running" forever
         from database import Account
-        Account.update(runtime_status="STOPPED").where(Account.status == 'active').execute()
+
+        Account.update(runtime_status="STOPPED").where(
+            Account.status == "active"
+        ).execute()
         rprint("Account statuses reset to STOPPED.")
 
         rprint("[bold green]System offline.[/bold green]")
+
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
