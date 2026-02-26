@@ -369,8 +369,20 @@ def update_session_config(new_config: Dict):
 
 
 def set_account_enabled(device_id: str, enabled: bool):
-    """Enables or disables a specific account for automation."""
-    Account.update(is_enabled=enabled).where(Account.device_id == device_id).execute()
+    """
+    Enables or disables a specific account.
+    If enabling, we also reset 'banned' status to 'active'
+    so the manager picks it up again.
+    """
+    update_data = {"is_enabled": enabled}
+
+    if enabled:
+        # If the user is manually turning it on,
+        # assume they want to clear any ban/error flags.
+        update_data["status"] = "active"
+        update_data["runtime_status"] = "READY"
+
+    Account.update(update_data).where(Account.device_id == device_id).execute()
 
 
 def disable_all_accounts():
@@ -614,7 +626,12 @@ def configure_and_enable_accounts(
     Configures task mode, warmup day, and enables the accounts in one go.
     """
     # 1. Base update data
-    update_data = {"task_mode": mode, "is_enabled": True}
+    update_data = {
+        "task_mode": mode,
+        "is_enabled": True,
+        "status": "active",
+        "runtime_status": "RUNNING",
+    }
 
     # 2. Add warmup day only if provided (keeps data clean for 'follow' mode)
     if warmup_day is not None:

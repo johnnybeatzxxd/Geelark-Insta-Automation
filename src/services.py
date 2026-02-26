@@ -459,32 +459,52 @@ def run_automation_for_device(device: dict, automation_type: str, payload: dict)
         logger(f"[bold red]CRITICAL WORKER FAILURE: {e}[/bold red]")
 
     finally:
+        from database import (
+            Account,
+            update_account_runtime_status,
+            set_account_enabled,
+            set_account_cooldown,
+            release_reserved_targets,
+        )
+
         # --- CLEANUP (Same as before) ---
         config = payload.get("config", {})
         continuous_mode = config.get("continuous_mode", True)
         cooldown_hours = config.get("cooldown_hours")
 
         if session_completed:
-            if continuous_mode:
-                if cooldown_hours is not None:
-                    cooldown_end = set_account_cooldown(
-                        device_id, float(cooldown_hours)
-                    )
-                    logger(
-                        f"[cyan]Session Success. Cooldown set for {cooldown_hours}h.[/cyan]"
-                    )
+            if automation_type == "warmup":
+                from database import clear_account_cooldown
+
+                # Ensure cooldown is None so it can run again immediately
+                clear_account_cooldown(device_id)
+                logger(
+                    "[cyan]Warmup Session Success. Skipping cooldown (Ready for next task).[/cyan]"
+                )
+                logger("[cyan]One-Off Mode: Disabling account.[/cyan]")
+                set_account_enabled(device_id, False)
+
+            # --- CASE B: FOLLOW SUCCESS ---
+            else:
+                if continuous_mode:
+                    if cooldown_hours is not None:
+                        cooldown_end = set_account_cooldown(
+                            device_id, float(cooldown_hours)
+                        )
+                        logger(
+                            f"[cyan]Follow Session Success. Cooldown set for {cooldown_hours}h.[/cyan]"
+                        )
+                    else:
+                        set_account_cooldown(device_id, 1.0)  # 1h safety default
                 else:
                     logger(
-                        "[red]Config Error: Cooldown missing. Defaulting to 1h.[/red]"
+                        "[cyan]Follow Session Success (One-Off). Disabling account.[/cyan]"
                     )
-                    set_account_cooldown(device_id, 1.0)
-            else:
-                logger("[cyan]Session Success. One-Off Mode. Disabling account.[/cyan]")
-                set_account_enabled(device_id, False)
+                    set_account_enabled(device_id, False)
+
         else:
             logger("[yellow]Session failed/incomplete. No cooldown set.[/yellow]")
             set_account_enabled(device_id, False)
-            update_account_runtime_status(device_id, "ERROR_STOPPED")
 
         try:
             # Safe Release of Targets

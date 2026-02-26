@@ -110,7 +110,6 @@ def kill_worker(device_id):
         # Always update DB status even if API failed, so UI knows it's effectively dead
         from database import update_account_runtime_status
 
-        update_account_runtime_status(device_id, "STOPPED")
         return True
     return False
 

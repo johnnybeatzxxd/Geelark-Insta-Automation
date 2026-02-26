@@ -154,11 +154,8 @@ def open_page(
         log(f"[yellow]Navigating to {target_key}...[/yellow]")
         tab = driver(resourceId=target_id)
 
-        # 1. OPTIMISTIC CLICK
-        if tab.exists(timeout=1.5):
-            tab.click()
-        else:
-            # Check for ban if tab bar is missing
+        # 1. PRE-CHECK & OPTIMISTIC CLICK
+        if not tab.exists(timeout=4.5):
             if is_account_banned_or_checkpoint(driver):
                 log("[bold red]!!! ACCOUNT BANNED / CHECKPOINT DETECTED !!![/bold red]")
                 raise Exception("ACCOUNT_BANNED")
@@ -166,37 +163,34 @@ def open_page(
             log("[dim]Tab bar not found, clearing popups...[/dim]")
             handle_common_popups(driver)
 
-            # Click with a slight wait
-            if not tab.click(timeout=3):
-                log(f"[red]Could not find {target_key} tab after popups.[/red]")
-                # Fall through to recovery
-            else:
-                # Small sleep to let IG flip the 'selected' attribute
-                time.sleep(0.5)
+            if not tab.exists(timeout=2):
+                # One last check before we give up on the tab
+                if is_account_banned_or_checkpoint(driver):
+                    raise Exception("ACCOUNT_BANNED")
 
-        # 2. ROBUST VERIFICATION (Avoids RPC -32002)
-        # We wait for the ID to exist first
-        if tab.wait(timeout=verification_timeout):
-            # Then we check if it is selected via .info (This is safer than putting it in the selector)
+        tab.click()
+
+        if tab.exists(timeout=verification_timeout):
+            tab.click()
             if tab.info.get("selected"):
                 log(f"[green]Successfully on {target_key}.[/green]")
-                return True
 
         # 3. FALLBACK VERIFICATION
         if get_current_screen_by_tab(driver, timeout=1) == target_screen_id:
-            log(f"[green]Verification Success (Fallback) for {target_key}.[/green]")
             return True
 
-        # 4. LAST RESORT: RECOVERY
+        # 4. RECOVERY
         log(f"[red]Failed to verify {target_key}. Restarting app...[/red]")
         driver.app_stop(APP_PACKAGE)
         driver.app_start(APP_PACKAGE)
         time.sleep(2)
         return driver(resourceId=target_id).click(timeout=5)
-
     except Exception as e:
         err_msg = str(e).lower()
 
+        if is_account_banned_or_checkpoint(driver):
+            log("[bold red]!!! BAN DETECTED DURING NAV ERROR !!![/bold red]")
+            raise Exception("ACCOUNT_BANNED")
         # If it's a specific RPC Error, we treat it as a network hiccup to trigger Auto-Heal
         if "-32002" in err_msg:
             log("[yellow]Internal RPC Error (-32002). Triggering Auto-Heal...[/yellow]")
