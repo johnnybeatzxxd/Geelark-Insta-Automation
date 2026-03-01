@@ -187,7 +187,7 @@ def sync_devices_with_api(api_devices: List[Dict]):
     if api_ids:
         (
             Account.update(status="archived", is_enabled=False)
-            .where((Account.device_id.not_in(api_ids)) & (Account.status == "active"))
+            .where((Account.device_id.not_in(api_ids)) & (Account.status != "archived"))
             .execute()
         )
     else:
