@@ -172,7 +172,7 @@ def sync_devices_with_api(api_devices: List[Dict]):
                 updates["group_name"] = g_name
 
             # Sync Status
-            if acc.status != "active":
+            if acc.status not in ["active", "banned"]:
                 updates["status"] = "active"
 
             # Perform efficient update
